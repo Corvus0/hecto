@@ -275,23 +275,38 @@ impl Editor {
         Ok(())
     }
 
-    /*  TODO: scroll when cursor approaches edge of screen
-        instead of when cursor hits edge */
     fn scroll(&mut self) {
-        let Position { x, y, max_x: _ } = self.cursor_position;
+        let Position { mut x, mut y, max_x } = self.cursor_position;
         let width = self.terminal.size().width as usize;
         let height = self.terminal.size().height as usize;
         let mut offset = &mut self.offset;
+        let screen_x = x.saturating_sub(offset.x);
+        let screen_y = y.saturating_sub(offset.y);
+        let width_edge = width / 8;
+        let height_edge = height / 5;
         if y < offset.y {
             offset.y = y;
+            y += height_edge;
+        } else if screen_y < height_edge {
+            offset.y = offset.y.saturating_sub(1);
         } else if y >= offset.y.saturating_add(height) {
             offset.y = y.saturating_sub(height).saturating_add(1);
+            y -= height_edge;
+        } else if screen_y >= height - height_edge {
+            offset.y = offset.y.saturating_add(1);
         }
         if x < offset.x {
             offset.x = x;
-        } else if x >= offset.y.saturating_add(width) {
+            x += width;
+        } else if screen_x < width_edge {
+            offset.x = offset.x.saturating_sub(1);
+        } else if x >= offset.x.saturating_add(width) {
             offset.x = x.saturating_sub(width).saturating_add(1);
+            x -= width_edge;
+        } else if screen_x >= width - width_edge {
+            offset.x = offset.x.saturating_add(1);
         }
+        self.cursor_position = Position { x, y, max_x };
     }
 
     fn move_cursor(&mut self, key: Key) {
