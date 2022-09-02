@@ -276,7 +276,7 @@ impl Editor {
     }
 
     fn scroll(&mut self) {
-        let Position { mut x, mut y, max_x } = self.cursor_position;
+        let Position { x, y, max_x: _ } = self.cursor_position;
         let width = self.terminal.size().width as usize;
         let height = self.terminal.size().height as usize;
         let mut offset = &mut self.offset;
@@ -285,28 +285,23 @@ impl Editor {
         let width_edge = width / 8;
         let height_edge = height / 5;
         if y < offset.y {
-            offset.y = y;
-            y += height_edge;
+            offset.y = y.saturating_sub(height_edge);
         } else if screen_y < height_edge {
-            offset.y = offset.y.saturating_sub(1);
+            offset.y = offset.y.saturating_sub(height_edge - screen_y);
         } else if y >= offset.y.saturating_add(height) {
-            offset.y = y.saturating_sub(height).saturating_add(1);
-            y -= height_edge;
+            offset.y = y.saturating_sub(height).saturating_add(height_edge + 1);
         } else if screen_y >= height - height_edge {
-            offset.y = offset.y.saturating_add(1);
+            offset.y = offset.y.saturating_add(screen_y - (height - height_edge));
         }
         if x < offset.x {
-            offset.x = x;
-            x += width;
+            offset.x = x.saturating_sub(width_edge);
         } else if screen_x < width_edge {
-            offset.x = offset.x.saturating_sub(1);
+            offset.x = offset.x.saturating_sub(width_edge - screen_x);
         } else if x >= offset.x.saturating_add(width) {
-            offset.x = x.saturating_sub(width).saturating_add(1);
-            x -= width_edge;
+            offset.x = x.saturating_sub(width).saturating_add(width_edge + 1);
         } else if screen_x >= width - width_edge {
-            offset.x = offset.x.saturating_add(1);
+            offset.x = offset.x.saturating_add(screen_x - (width - width_edge));
         }
-        self.cursor_position = Position { x, y, max_x };
     }
 
     fn move_cursor(&mut self, key: Key) {
