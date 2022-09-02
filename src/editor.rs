@@ -6,6 +6,7 @@ use std::time::Duration;
 use std::time::Instant;
 use termion::color;
 use termion::event::Key;
+use unicode_segmentation::UnicodeSegmentation;
 
 const QUIT_TIMES: u8 = 3;
 const STATUS_FG_COLOR: color::Rgb = color::Rgb(63, 63, 63);
@@ -63,6 +64,7 @@ impl Editor {
             }
         }
     }
+
     pub fn default() -> Self {
         let args: Vec<String> = env::args().collect();
         let mut initial_status =
@@ -90,6 +92,7 @@ impl Editor {
             highlighted_word: None,
         }
     }
+
     fn refresh_screen(&mut self) -> Result<(), std::io::Error> {
         Terminal::cursor_hide();
         Terminal::cursor_position(&Position::default());
@@ -116,6 +119,7 @@ impl Editor {
         Terminal::cursor_show();
         Terminal::flush()
     }
+
     fn save(&mut self) {
         if self.document.file_name.is_none() {
             let new_name = self.prompt("Save as: ", |_, _, _| {}).unwrap_or(None);
@@ -132,6 +136,7 @@ impl Editor {
             self.status_message = StatusMessage::from("Error writing file!".to_string());
         }
     }
+
     fn search(&mut self) {
         let old_position = self.cursor_position.clone();
         let mut direction = SearchDirection::Forward;
@@ -149,10 +154,10 @@ impl Editor {
                         Key::Left | Key::Up => direction = SearchDirection::Backward,
                         _ => direction = SearchDirection::Forward,
                     }
-                    if let Some(position) = 
+                    if let Some(position) =
                         editor
                             .document
-                            .find(&query, &editor.cursor_position, direction)
+                            .find(query, &editor.cursor_position, direction)
                     {
                         editor.cursor_position = position;
                         editor.scroll();
@@ -162,13 +167,14 @@ impl Editor {
                     editor.highlighted_word = Some(query.to_string());
                 },
             )
-        .unwrap_or(None);
+            .unwrap_or(None);
         if query.is_none() {
             self.cursor_position = old_position;
             self.scroll();
         }
         self.highlighted_word = None;
     }
+
     fn process_keypress(&mut self) -> Result<(), std::io::Error> {
         let pressed_key = Terminal::read_key()?;
         match pressed_key {
@@ -213,6 +219,7 @@ impl Editor {
         }
         Ok(())
     }
+
     fn scroll(&mut self) {
         let Position { x, y } = self.cursor_position;
         let width = self.terminal.size().width as usize;
@@ -229,6 +236,7 @@ impl Editor {
             offset.x = x.saturating_sub(width).saturating_add(1);
         }
     }
+
     fn move_cursor(&mut self, key: Key) {
         let terminal_height = self.terminal.size().height as usize;
         let Position { mut x, mut y } = self.cursor_position;
@@ -291,9 +299,10 @@ impl Editor {
         if x > width {
             x = width;
         }
-        
+
         self.cursor_position = Position { x, y }
     }
+
     fn draw_welcome_message(&self) {
         let mut welcome_message = format!("Hecto editor -- version {}\r", VERSION);
         let width = self.terminal.size().width as usize;
@@ -305,6 +314,7 @@ impl Editor {
         welcome_message.truncate(width);
         println!("{}\r", &welcome_message);
     }
+
     pub fn draw_row(&self, row: &Row) {
         let width = self.terminal.size().width as usize;
         let start = self.offset.x;
@@ -312,6 +322,7 @@ impl Editor {
         let row = row.render(start, end);
         println!("{}\r", row);
     }
+
     #[allow(clippy::integer_arithmetic, clippy::integer_division)]
     fn draw_rows(&self) {
         let height = self.terminal.size().height;
@@ -329,6 +340,7 @@ impl Editor {
             }
         }
     }
+
     fn draw_status_bar(&self) {
         let mut status;
         let width = self.terminal.size().width as usize;
@@ -364,6 +376,7 @@ impl Editor {
         Terminal::reset_fg_color();
         Terminal::reset_bg_color();
     }
+
     fn draw_message_bar(&self) {
         Terminal::clear_current_line();
         let message = &self.status_message;
@@ -373,6 +386,7 @@ impl Editor {
             print!("{}", text);
         }
     }
+
     fn prompt<C>(&mut self, prompt: &str, mut callback: C) -> Result<Option<String>, std::io::Error>
     where
         C: FnMut(&mut Self, Key, &String),
@@ -383,7 +397,13 @@ impl Editor {
             self.refresh_screen()?;
             let key = Terminal::read_key()?;
             match key {
-                Key::Backspace => result.truncate(result.len().saturating_sub(1)),
+                Key::Backspace => {
+                    let graphemes_cnt = result.graphemes(true).count();
+                    result = result
+                        .graphemes(true)
+                        .take(graphemes_cnt.saturating_sub(1))
+                        .collect();
+                }
                 Key::Char('\n') => break,
                 Key::Char(c) => {
                     if !c.is_control() {

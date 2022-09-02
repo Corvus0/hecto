@@ -59,12 +59,15 @@ impl Row {
         result.push_str(&end_highlight[..]);
         result
     }
+
     pub fn len(&self) -> usize {
         self.len
     }
+
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
+
     pub fn insert(&mut self, at: usize, c: char) {
         if at >= self.len() {
             self.string.push(c);
@@ -72,52 +75,49 @@ impl Row {
             return;
         }
         let mut result: String = String::new();
-        let mut length = 0;
         for (index, grapheme) in self.string[..].graphemes(true).enumerate() {
-            length += 1;
             if index == at {
-                length += 1;
                 result.push(c);
             }
             result.push_str(grapheme);
         }
-        self.len = length;
+        self.len += 1;
         self.string = result;
     }
+
     pub fn delete(&mut self, at: usize) {
         if at >= self.len() {
             return;
         }
         let mut result: String = String::new();
-        let mut length = 0;
         for (index, grapheme) in self.string[..].graphemes(true).enumerate() {
             if index != at {
-                length += 1;
                 result.push_str(grapheme);
             }
         }
-        self.len = length;
+        self.len -= 1;
         self.string = result;
     }
+
     pub fn append(&mut self, new: &Self) {
         self.string = format!("{}{}", self.string, new.string);
         self.len += new.len;
     }
+
     pub fn split(&mut self, at: usize) -> Self {
         let mut row: String = String::new();
         let mut length = 0;
         let mut splitted_row: String = String::new();
-        let mut splitted_length = 0;
         for (index, grapheme) in self.string[..].graphemes(true).enumerate() {
             if index < at {
                 length += 1;
                 row.push_str(grapheme);
             } else {
-                splitted_length += 1;
                 splitted_row.push_str(grapheme);
             }
         }
 
+        let splitted_length = self.len - length;
         self.string = row;
         self.len = length;
         self.is_highlighted = false;
@@ -128,9 +128,11 @@ impl Row {
             highlighting: Vec::new(),
         }
     }
-    pub fn as_bytes(&self) ->&[u8] {
+
+    pub fn as_bytes(&self) -> &[u8] {
         self.string.as_bytes()
     }
+
     pub fn find(&self, query: &str, at: usize, direction: SearchDirection) -> Option<usize> {
         if at > self.len || query.is_empty() {
             return None;
@@ -151,7 +153,7 @@ impl Row {
             .skip(start)
             .take(end - start)
             .collect();
-        let matching_byte_index = if direction == SearchDirection::Forward { 
+        let matching_byte_index = if direction == SearchDirection::Forward {
             substring.find(query)
         } else {
             substring.rfind(query)
@@ -168,6 +170,7 @@ impl Row {
         }
         None
     }
+
     fn highlight_match(&mut self, word: &Option<String>) {
         if let Some(word) = word {
             if word.is_empty() {
@@ -188,6 +191,7 @@ impl Row {
             }
         }
     }
+
     fn highlight_str(
         &mut self,
         index: &mut usize,
@@ -213,6 +217,7 @@ impl Row {
         }
         true
     }
+
     fn highlight_keywords(
         &mut self,
         index: &mut usize,
@@ -242,6 +247,7 @@ impl Row {
         }
         false
     }
+
     fn highlight_primary_keywords(
         &mut self,
         index: &mut usize,
@@ -255,6 +261,7 @@ impl Row {
             highlighting::Type::PrimaryKeywords,
         )
     }
+
     fn highlight_secondary_keywords(
         &mut self,
         index: &mut usize,
@@ -268,6 +275,7 @@ impl Row {
             highlighting::Type::SecondaryKeywords,
         )
     }
+
     fn highlight_char(
         &mut self,
         index: &mut usize,
@@ -295,6 +303,7 @@ impl Row {
         }
         false
     }
+
     fn highlight_comment(
         &mut self,
         index: &mut usize,
@@ -315,6 +324,7 @@ impl Row {
         }
         false
     }
+
     #[allow(clippy::indexing_slicing, clippy::integer_arithmetic)]
     fn highlight_multiline_comment(
         &mut self,
@@ -323,7 +333,7 @@ impl Row {
         c: char,
         chars: &[char],
     ) -> bool {
-        if opts.comments() && c == '/' && *index < chars.len() {
+        if opts.multiline_comments() && c == '/' && *index < chars.len() {
             if let Some(next_char) = chars.get(index.saturating_add(1)) {
                 if *next_char == '*' {
                     let closing_index =
@@ -342,6 +352,7 @@ impl Row {
         }
         false
     }
+
     fn highlight_string(
         &mut self,
         index: &mut usize,
@@ -355,6 +366,13 @@ impl Row {
                 *index += 1;
                 if let Some(next_char) = chars.get(*index) {
                     if *next_char == '"' {
+                        if let Some(prev_char) = chars.get(*index - 1) {
+                            if *prev_char != '\\' {
+                                break;
+                            } else {
+                                continue;
+                            }
+                        }
                         break;
                     }
                 } else {
@@ -367,12 +385,13 @@ impl Row {
         }
         false
     }
+
     fn highlight_number(
         &mut self,
         index: &mut usize,
         opts: &HighlightingOptions,
         c: char,
-        chars: &[char]
+        chars: &[char],
     ) -> bool {
         if opts.numbers() && c.is_ascii_digit() {
             if *index > 0 {
@@ -397,6 +416,7 @@ impl Row {
         }
         false
     }
+
     #[allow(clippy::indexing_slicing, clippy::integer_arithmetic)]
     pub fn highlight(
         &mut self,
@@ -406,14 +426,6 @@ impl Row {
     ) -> bool {
         let chars: Vec<char> = self.string.chars().collect();
         if self.is_highlighted && word.is_none() {
-            if let Some(hl_type) = self.highlighting.last() {
-                if *hl_type == highlighting::Type::MultilineComment
-                    && self.string.len() > 1
-                    && self.string[self.string.len() - 2..] == *"*/"
-                {
-                    return true;
-                }
-            }
             return false;
         }
         self.highlighting = Vec::new();
@@ -431,7 +443,7 @@ impl Row {
             index = closing_index;
         }
         while let Some(c) = chars.get(index) {
-            if self.highlight_multiline_comment(&mut index, &opts, *c, &chars) {
+            if self.highlight_multiline_comment(&mut index, opts, *c, &chars) {
                 in_ml_comment = true;
                 continue;
             }

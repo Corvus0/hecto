@@ -108,7 +108,7 @@ impl FileType {
                         "usize".to_string(),
                         "f32".to_string(),
                         "f64".to_string(),
-                    ]
+                    ],
                 },
             };
         }
@@ -120,21 +120,27 @@ impl HighlightingOptions {
     pub fn numbers(&self) -> bool {
         self.numbers
     }
+
     pub fn strings(&self) -> bool {
         self.strings
     }
+
     pub fn characters(&self) -> bool {
         self.characters
     }
+
     pub fn comments(&self) -> bool {
         self.comments
     }
+
     pub fn multiline_comments(&self) -> bool {
         self.multiline_comments
     }
+
     pub fn primary_keywords(&self) -> &Vec<String> {
         &self.primary_keywords
     }
+    
     pub fn secondary_keywords(&self) -> &Vec<String> {
         &self.secondary_keywords
     }
