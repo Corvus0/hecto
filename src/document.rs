@@ -127,7 +127,7 @@ impl Document {
         if at.y >= self.rows.len() {
             return None;
         }
-        let mut position = Position { x: at.x, y: at.y };
+        let mut position = Position { x: at.x, y: at.y, max_x: at.max_x, };
 
         let start = if direction == SearchDirection::Forward {
             at.y

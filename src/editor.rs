@@ -19,10 +19,16 @@ pub enum SearchDirection {
     Backward,
 }
 
+enum Mode {
+    Insert,
+    Visual,
+}
+
 #[derive(Default, Clone)]
 pub struct Position {
     pub x: usize,
     pub y: usize,
+    pub max_x: usize,
 }
 
 struct StatusMessage {
@@ -48,6 +54,7 @@ pub struct Editor {
     status_message: StatusMessage,
     quit_times: u8,
     highlighted_word: Option<String>,
+    mode: Mode,
 }
 
 impl Editor {
@@ -90,12 +97,13 @@ impl Editor {
             status_message: StatusMessage::from(initial_status),
             quit_times: QUIT_TIMES,
             highlighted_word: None,
+            mode: Mode::Visual,
         }
     }
 
     fn refresh_screen(&mut self) -> Result<(), std::io::Error> {
         Terminal::cursor_hide();
-        Terminal::cursor_position(&Position::default());
+        Terminal::cursor_position(&Position::default(), false);
         if self.should_quit {
             Terminal::clear_screen();
             println!("Goodbye.\r");
@@ -114,7 +122,9 @@ impl Editor {
             Terminal::cursor_position(&Position {
                 x: self.cursor_position.x.saturating_sub(self.offset.x),
                 y: self.cursor_position.y.saturating_sub(self.offset.y),
-            });
+                max_x: self.cursor_position.max_x,
+            },
+            !self.document.row(self.cursor_position.y).is_none());
         }
         Terminal::cursor_show();
         Terminal::flush()
@@ -175,6 +185,45 @@ impl Editor {
         self.highlighted_word = None;
     }
 
+    fn visual_mode(&mut self, c: char) {
+        match c {
+            'i' => self.mode = Mode::Insert,
+            'h' => self.move_cursor(Key::Left),
+            'j' => self.move_cursor(Key::Down),
+            'k' => self.move_cursor(Key::Up),
+            'l' => self.move_cursor(Key::Right),
+            'a' => {
+                self.move_cursor(Key::Right);
+                self.mode = Mode::Insert;
+            }
+            'A' => {
+                self.move_cursor(Key::End);
+                self.mode = Mode::Insert;
+            }
+            'o' => {
+                self.move_cursor(Key::End);
+                self.mode = Mode::Insert;
+                self.document.insert(&self.cursor_position, '\n');
+            }
+            'O' => {
+                self.move_cursor(Key::Home);
+                self.mode = Mode::Insert;
+                self.document.insert(&self.cursor_position, '\n');
+                self.move_cursor(Key::Up);
+            }
+            'x' => self.document.delete(&self.cursor_position),
+            'd' => {
+                self.move_cursor(Key::Home);
+                if let Some(row) = self.document.row(self.cursor_position.y) {
+                    for _ in 0..=row.len() {
+                        self.document.delete(&self.cursor_position);
+                    }
+                }
+            }
+            _ => (),
+        }
+    }
+
     fn process_keypress(&mut self) -> Result<(), std::io::Error> {
         let pressed_key = Terminal::read_key()?;
         match pressed_key {
@@ -192,9 +241,15 @@ impl Editor {
             Key::Ctrl('s') => self.save(),
             Key::Ctrl('f') => self.search(),
             Key::Char(c) => {
-                self.document.insert(&self.cursor_position, c);
-                self.move_cursor(Key::Right);
+                match self.mode {
+                    Mode::Insert => {
+                        self.document.insert(&self.cursor_position, c);
+                        self.move_cursor(Key::Right);
+                    }
+                    Mode::Visual => self.visual_mode(c),
+                }
             }
+            Key::Esc => self.mode = Mode::Visual,
             Key::Delete => self.document.delete(&self.cursor_position),
             Key::Backspace => {
                 if self.cursor_position.x > 0 || self.cursor_position.y > 0 {
@@ -220,8 +275,10 @@ impl Editor {
         Ok(())
     }
 
+    /*  TODO: scroll when cursor approaches edge of screen
+        instead of when cursor hits edge */
     fn scroll(&mut self) {
-        let Position { x, y } = self.cursor_position;
+        let Position { x, y, max_x: _ } = self.cursor_position;
         let width = self.terminal.size().width as usize;
         let height = self.terminal.size().height as usize;
         let mut offset = &mut self.offset;
@@ -232,14 +289,14 @@ impl Editor {
         }
         if x < offset.x {
             offset.x = x;
-        } else if x >= offset.x.saturating_add(width) {
+        } else if x >= offset.y.saturating_add(width) {
             offset.x = x.saturating_sub(width).saturating_add(1);
         }
     }
 
     fn move_cursor(&mut self, key: Key) {
         let terminal_height = self.terminal.size().height as usize;
-        let Position { mut x, mut y } = self.cursor_position;
+        let Position { mut x, mut y, mut max_x } = self.cursor_position;
         let height = self.document.len();
         let mut width = if let Some(row) = self.document.row(y) {
             row.len()
@@ -264,6 +321,7 @@ impl Editor {
                         x = 0;
                     }
                 }
+                max_x = x;
             }
             Key::Right => {
                 if x < width {
@@ -272,6 +330,7 @@ impl Editor {
                     y += 1;
                     x = 0;
                 }
+                max_x = x;
             }
             Key::PageUp => {
                 y = if y > terminal_height {
@@ -287,8 +346,14 @@ impl Editor {
                     height
                 }
             }
-            Key::Home => x = 0,
-            Key::End => x = width,
+            Key::Home => {
+                x = 0;
+                max_x = x;
+            }
+            Key::End => {
+                x = width;
+                max_x = x;
+            }
             _ => (),
         }
         width = if let Some(row) = self.document.row(y) {
@@ -296,11 +361,12 @@ impl Editor {
         } else {
             0
         };
+        x = max_x;
         if x > width {
             x = width;
         }
 
-        self.cursor_position = Position { x, y }
+        self.cursor_position = Position { x, y, max_x }
     }
 
     fn draw_welcome_message(&self) {
@@ -315,11 +381,16 @@ impl Editor {
         println!("{}\r", &welcome_message);
     }
 
-    pub fn draw_row(&self, row: &Row) {
+    pub fn draw_row(&self, row: &Row, num: usize) {
         let width = self.terminal.size().width as usize;
         let start = self.offset.x;
         let end = self.offset.x.saturating_add(width);
         let row = row.render(start, end);
+        if self.cursor_position.y != num.saturating_sub(1) {
+            Terminal::set_fg_color(color::Rgb(85, 87, 83));
+        }
+        print!("{:>4} ", num);
+        Terminal::reset_fg_color();
         println!("{}\r", row);
     }
 
@@ -328,11 +399,13 @@ impl Editor {
         let height = self.terminal.size().height;
         for terminal_row in 0..height {
             Terminal::clear_current_line();
+            let index = self.offset.y.saturating_add(terminal_row as usize);
             if let Some(row) = self
                 .document
-                .row(self.offset.y.saturating_add(terminal_row as usize))
+                .row(index)
             {
-                self.draw_row(row);
+                let num = index.saturating_add(1);
+                self.draw_row(row, num);
             } else if self.document.is_empty() && terminal_row == height / 3 {
                 self.draw_welcome_message();
             } else {
@@ -343,7 +416,7 @@ impl Editor {
 
     fn draw_status_bar(&self) {
         let mut status;
-        let width = self.terminal.size().width as usize;
+        let width = self.terminal.size().width.saturating_add(5) as usize;
         let modified_indicator = if self.document.is_dirty() {
             " (modified)"
         } else {
@@ -354,17 +427,31 @@ impl Editor {
             file_name = name.clone();
             file_name.truncate(20);
         }
+        let mode = match self.mode {
+            Mode::Insert => "INSERT MODE",
+            Mode::Visual => "VISUAL MODE",
+        }.to_string();
         status = format!(
-            "{} - {} lines{}",
+            "{} | {} - {} lines{}",
+            mode,
             file_name,
             self.document.len(),
             modified_indicator
         );
+        let progress = match self.offset.y {
+            n if n == 0 => "Top".to_string(),
+            n if n == self.document.len()
+                .saturating_sub(self.terminal.size().height.saturating_sub(1) as usize)
+                && self.cursor_position.y >= n => "Bottom".to_string(),
+            _ => format!("%{}", ((self.cursor_position.y as f64
+                / self.document.len() as f64) * 100.0) as usize)
+        };
         let line_indicator = format!(
-            "{} | {}/{}",
+            "{} | {}:{} {}",
             self.document.file_type(),
             self.cursor_position.y.saturating_add(1),
-            self.document.len()
+            self.cursor_position.x.saturating_add(1),
+            progress
         );
         let len = status.len() + line_indicator.len();
         status.push_str(&" ".repeat(width.saturating_sub(len)));

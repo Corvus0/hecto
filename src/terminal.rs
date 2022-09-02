@@ -19,7 +19,7 @@ impl Terminal {
         let size = termion::terminal_size()?;
         Ok(Self {
             size: Size {
-                width: size.0,
+                width: size.0.saturating_sub(5),
                 height: size.1.saturating_sub(2),
             },
             _stdout: stdout().into_raw_mode()?,
@@ -35,9 +35,13 @@ impl Terminal {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    pub fn cursor_position(position: &Position) {
-        let Position { mut x, mut y } = position;
-        x = x.saturating_add(1);
+    pub fn cursor_position(position: &Position, is_row: bool) {
+        let Position { mut x, mut y, .. } = position;
+        if is_row {
+            x = x.saturating_add(6);
+        } else {
+            x = x.saturating_add(1);
+        }
         y = y.saturating_add(1);
         let x = x as u16;
         let y = y as u16;
