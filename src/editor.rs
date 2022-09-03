@@ -224,6 +224,21 @@ impl Editor {
     }
 
     fn visual_mode(&mut self, c: char) {
+        if let Some(n) = c.to_digit(10) {
+            if let Ok(input) = self.prompt(&format!("{}", n)[..], |_, _, _| {}) {
+                if let Some(mut input) = input {
+                    input.insert_str(0, &n.to_string()[..]);
+                    if let Some(command) = input.pop() {
+                        if let Ok(repeats) = input.parse() {
+                            for _ in 0..repeats {
+                                self.visual_mode(command);
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
         match c {
             'i' => self.mode = Mode::Insert,
             'h' => self.move_cursor(Key::Left),
@@ -574,6 +589,9 @@ impl Editor {
             match key {
                 Key::Backspace => {
                     let graphemes_cnt = result.graphemes(true).count();
+                    if graphemes_cnt == 0 {
+                        break;
+                    }
                     result = result
                         .graphemes(true)
                         .take(graphemes_cnt.saturating_sub(1))

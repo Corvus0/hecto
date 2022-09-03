@@ -27,9 +27,11 @@ impl FileType {
     pub fn name(&self) -> String {
         self.name.clone()
     }
+
     pub fn highlighting_options(&self) -> &HighlightingOptions {
         &self.hl_opts
     }
+
     pub fn from(file_name: &str) -> Self {
         if file_name.ends_with(".rs") {
             return Self {
