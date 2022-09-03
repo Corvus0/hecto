@@ -139,7 +139,7 @@ impl Editor {
 
         if let Ok(bytes_written) = self.document.save() {
             self.status_message = StatusMessage::from(format!(
-                "File saved successfully. {} Bytes Written", bytes_written
+                "File saved successfully: {} bytes written.", bytes_written
             ));
         } else {
             self.status_message = StatusMessage::from("Error writing file!".to_string());
