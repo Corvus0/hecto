@@ -53,6 +53,7 @@ pub struct Editor {
     document: Document,
     status_message: StatusMessage,
     highlighted_word: Option<String>,
+    clipboard: Option<String>,
     mode: Mode,
 }
 
@@ -94,6 +95,7 @@ impl Editor {
             document,
             status_message: StatusMessage::from(initial_status),
             highlighted_word: None,
+            clipboard: None,
             mode: Mode::Visual,
         }
     }
@@ -285,9 +287,28 @@ impl Editor {
             'x' => {
                 self.document.delete(&self.cursor_position);
             }
+            'y' => {
+                if let Some(row) = self.document.row(self.cursor_position.y) {
+                    self.clipboard = Some(row.contents().trim().to_string());
+                }
+            }
+            'p' => {
+                if self.clipboard.is_some() {
+                    self.move_cursor(Key::End);
+                    self.document.insert(&self.cursor_position, '\n');
+                    self.move_cursor(Key::Down);
+                    self.move_cursor(Key::End);
+                    if let Some(contents) = &self.clipboard {
+                        for c in contents.chars().rev() {
+                            self.document.insert(&self.cursor_position, c);
+                        }
+                    }
+                }
+            }
             'd' => {
                 self.move_cursor(Key::Home);
                 if let Some(row) = self.document.row(self.cursor_position.y) {
+                    self.clipboard = Some(row.contents().trim().to_string());
                     for _ in 0..=row.len() {
                         self.document.delete(&self.cursor_position);
                     }

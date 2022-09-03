@@ -68,13 +68,6 @@ impl Row {
         self.len == 0
     }
 
-    pub fn get_slice(&self, start: usize, end: usize) -> &str {
-        if start.saturating_add(1) >= self.len() || end < start || end > self.len() {
-            return &""[..];
-        }
-        &self.string[start..end]
-    }
-
     pub fn insert(&mut self, at: usize, c: char) {
         if at >= self.len() {
             self.string.push(c);
@@ -165,6 +158,10 @@ impl Row {
 
     pub fn as_bytes(&self) -> &[u8] {
         self.string.as_bytes()
+    }
+
+    pub fn contents(&self) -> String {
+        self.string.clone()
     }
 
     pub fn find(&self, query: &str, at: usize, direction: SearchDirection) -> Option<usize> {
