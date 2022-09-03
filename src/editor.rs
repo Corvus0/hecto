@@ -73,8 +73,7 @@ impl Editor {
 
     pub fn default() -> Self {
         let args: Vec<String> = env::args().collect();
-        let mut initial_status =
-            String::from(": for commands");
+        let mut initial_status = String::from(": for commands");
         let document = if let Some(file_name) = args.get(1) {
             let doc = Document::open(&file_name);
             if let Ok(doc) = doc {
@@ -117,12 +116,14 @@ impl Editor {
             self.draw_rows();
             self.draw_status_bar();
             self.draw_message_bar();
-            Terminal::cursor_position(&Position {
-                x: self.cursor_position.x.saturating_sub(self.offset.x),
-                y: self.cursor_position.y.saturating_sub(self.offset.y),
-                max_x: self.cursor_position.max_x,
-            },
-            !self.document.row(self.cursor_position.y).is_none());
+            Terminal::cursor_position(
+                &Position {
+                    x: self.cursor_position.x.saturating_sub(self.offset.x),
+                    y: self.cursor_position.y.saturating_sub(self.offset.y),
+                    max_x: self.cursor_position.max_x,
+                },
+                !self.document.row(self.cursor_position.y).is_none(),
+            );
         }
         Terminal::cursor_show();
         Terminal::flush()
@@ -140,7 +141,8 @@ impl Editor {
 
         if let Ok(bytes_written) = self.document.save() {
             self.status_message = StatusMessage::from(format!(
-                "File saved successfully: {} bytes written.", bytes_written
+                "File saved successfully: {} bytes written.",
+                bytes_written
             ));
         } else {
             self.status_message = StatusMessage::from("Error writing file!".to_string());
@@ -186,16 +188,18 @@ impl Editor {
     }
 
     fn execute_command(&mut self) {
-        let input = self.prompt(":", |_, _, _,| {}).unwrap_or(None).unwrap_or("".to_string());
+        let input = self
+            .prompt(":", |_, _, _| {})
+            .unwrap_or(None)
+            .unwrap_or("".to_string());
         let mut commands = input.chars().peekable();
         while let Some(c) = commands.next() {
             match c {
                 'w' => self.save(),
                 'q' => {
                     if self.document.is_dirty() {
-                        self.status_message = StatusMessage::from(format!(
-                            "WARNING! File has unsaved changes.",
-                        ));
+                        self.status_message =
+                            StatusMessage::from(format!("WARNING! File has unsaved changes.",));
                         if let Some(next) = commands.peek() {
                             if *next == '!' {
                                 commands.next();
@@ -206,9 +210,7 @@ impl Editor {
                         self.should_quit = true;
                     }
                 }
-                _ => self.status_message = StatusMessage::from(format!(
-                    "Command not found: {}", c
-                )),
+                _ => self.status_message = StatusMessage::from(format!("Command not found: {}", c)),
             }
         }
     }
@@ -277,10 +279,11 @@ impl Editor {
     fn insert_mode(&mut self, c: char) {
         match c {
             '\t' => {
-                for _ in (self.cursor_position.x % 4)..4 {
+                let spaces = 4 - self.cursor_position.x % 4;
+                for _ in 0..spaces {
                     self.document.insert(&self.cursor_position, ' ');
-                    self.move_cursor(Key::Right);
                 }
+                self.cursor_position.x = self.cursor_position.x.saturating_add(spaces);
             }
             '\n' => {
                 self.document.insert(&self.cursor_position, c);
@@ -289,9 +292,7 @@ impl Editor {
                 if let Some(row) = self.document.row(self.cursor_position.y) {
                     spaces = row.indentation();
                 }
-                for _ in 0..spaces {
-                    self.move_cursor(Key::Right);
-                }
+                self.cursor_position.x = self.cursor_position.x.saturating_add(spaces);
             }
             _ => {
                 self.document.insert(&self.cursor_position, c);
@@ -303,12 +304,10 @@ impl Editor {
     fn process_keypress(&mut self) -> Result<(), std::io::Error> {
         let pressed_key = Terminal::read_key()?;
         match pressed_key {
-            Key::Char(c) => {
-                match self.mode {
-                    Mode::Insert => self.insert_mode(c),
-                    Mode::Visual => self.visual_mode(c),
-                }
-            }
+            Key::Char(c) => match self.mode {
+                Mode::Insert => self.insert_mode(c),
+                Mode::Visual => self.visual_mode(c),
+            },
             Key::Esc => self.mode = Mode::Visual,
             Key::Delete => {
                 self.document.delete(&self.cursor_position);
@@ -367,7 +366,11 @@ impl Editor {
 
     fn move_cursor(&mut self, key: Key) {
         let terminal_height = self.terminal.size().height as usize;
-        let Position { mut x, mut y, mut max_x } = self.cursor_position;
+        let Position {
+            mut x,
+            mut y,
+            mut max_x,
+        } = self.cursor_position;
         let height = self.document.len();
         let mut width = if let Some(row) = self.document.row(y) {
             row.len()
@@ -471,10 +474,7 @@ impl Editor {
         for terminal_row in 0..height {
             Terminal::clear_current_line();
             let index = self.offset.y.saturating_add(terminal_row as usize);
-            if let Some(row) = self
-                .document
-                .row(index)
-            {
+            if let Some(row) = self.document.row(index) {
                 let num = index.saturating_add(1);
                 self.draw_row(row, num);
             } else if self.document.is_empty() && terminal_row == height / 3 {
@@ -501,7 +501,8 @@ impl Editor {
         let mode = match self.mode {
             Mode::Insert => "INSERT MODE",
             Mode::Visual => "VISUAL MODE",
-        }.to_string();
+        }
+        .to_string();
         status = format!(
             "{} | {} - {} lines{}",
             mode,
@@ -511,11 +512,19 @@ impl Editor {
         );
         let progress = match self.offset.y {
             n if n == 0 => "Top".to_string(),
-            n if n == self.document.len()
-                .saturating_sub(self.terminal.size().height.saturating_sub(1) as usize)
-                && self.cursor_position.y >= n => "Bottom".to_string(),
-            _ => format!("%{}", ((self.cursor_position.y as f64
-                / self.document.len() as f64) * 100.0) as usize)
+            n if n
+                == self
+                    .document
+                    .len()
+                    .saturating_sub(self.terminal.size().height.saturating_sub(1) as usize)
+                && self.cursor_position.y >= n =>
+            {
+                "Bottom".to_string()
+            }
+            _ => format!(
+                "%{}",
+                ((self.cursor_position.y as f64 / self.document.len() as f64) * 100.0) as usize
+            ),
         };
         let line_indicator = format!(
             "{} | {}:{} {}",

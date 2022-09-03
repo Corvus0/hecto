@@ -69,8 +69,7 @@ impl Row {
     }
 
     pub fn get_slice(&self, start: usize, end: usize) -> &str {
-       if start.saturating_add(1) >= self.len()|| end < start || end > self.len()
-        {
+        if start.saturating_add(1) >= self.len() || end < start || end > self.len() {
             return &""[..];
         }
         &self.string[start..end]
@@ -110,12 +109,12 @@ impl Row {
         let mut deleted = 0;
         let mut result: String = String::new();
         for (index, grapheme) in self.string[..].graphemes(true).enumerate() {
-            if index < start || (index >= start && !remove_spaces && index < at) || index > at  {
+            if index < start || (index >= start && !remove_spaces && index < at) || index > at {
                 result.push_str(grapheme);
             } else {
                 deleted += 1;
             }
-        };
+        }
         self.len -= deleted;
         self.string = result;
         deleted.saturating_sub(1)
