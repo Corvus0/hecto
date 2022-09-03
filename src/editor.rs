@@ -217,6 +217,8 @@ impl Editor {
             'j' => self.move_cursor(Key::Down),
             'k' => self.move_cursor(Key::Up),
             'l' => self.move_cursor(Key::Right),
+            'g' => self.cursor_position.y = 0,
+            'G' => self.cursor_position.y = self.document.len(),
             'a' => {
                 self.move_cursor(Key::Right);
                 self.mode = Mode::Insert;
@@ -265,8 +267,18 @@ impl Editor {
             Key::Char(c) => {
                 match self.mode {
                     Mode::Insert => {
-                        self.document.insert(&self.cursor_position, c);
-                        self.move_cursor(Key::Right);
+                        match c {
+                            '\t' => {
+                                for _ in 0..4 {
+                                    self.document.insert(&self.cursor_position, ' ');
+                                    self.move_cursor(Key::Right);
+                                }
+                            }
+                            _ => {
+                                self.document.insert(&self.cursor_position, c);
+                                self.move_cursor(Key::Right);
+                            }
+                        }
                     }
                     Mode::Visual => self.visual_mode(c),
                 }
