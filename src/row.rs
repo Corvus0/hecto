@@ -93,18 +93,32 @@ impl Row {
         self.string = result;
     }
 
-    pub fn delete(&mut self, at: usize) {
+    pub fn delete(&mut self, at: usize) -> usize {
         if at >= self.len() {
-            return;
+            return 0;
         }
+        let start = at.saturating_sub(3);
+        let mut remove_spaces = at % 4 == 3;
+        for i in start..=at {
+            if let Some(grapheme) = self.string[..].graphemes(true).nth(i) {
+                if grapheme != &" "[..] {
+                    remove_spaces = false;
+                    break;
+                }
+            }
+        }
+        let mut deleted = 0;
         let mut result: String = String::new();
         for (index, grapheme) in self.string[..].graphemes(true).enumerate() {
-            if index != at {
+            if index < start || (index >= start && !remove_spaces && index < at) || index > at  {
                 result.push_str(grapheme);
+            } else {
+                deleted += 1;
             }
         };
-        self.len -= 1;
+        self.len -= deleted;
         self.string = result;
+        deleted.saturating_sub(1)
     }
 
     pub fn append(&mut self, new: &Self) {

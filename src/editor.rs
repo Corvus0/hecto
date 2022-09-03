@@ -220,8 +220,14 @@ impl Editor {
             'j' => self.move_cursor(Key::Down),
             'k' => self.move_cursor(Key::Up),
             'l' => self.move_cursor(Key::Right),
-            'g' => self.cursor_position.y = 0,
-            'G' => self.cursor_position.y = self.document.len(),
+            'g' => {
+                self.cursor_position.y = 0;
+                self.cursor_position.x = 0;
+            }
+            'G' => {
+                self.cursor_position.y = self.document.len();
+                self.cursor_position.x = 0;
+            }
             'a' => {
                 self.move_cursor(Key::Right);
                 self.mode = Mode::Insert;
@@ -234,12 +240,14 @@ impl Editor {
                 self.move_cursor(Key::End);
                 self.mode = Mode::Insert;
                 self.document.insert(&self.cursor_position, '\n');
+                self.move_cursor(Key::Down);
             }
             'O' => {
-                self.move_cursor(Key::Home);
+                self.move_cursor(Key::Up);
+                self.move_cursor(Key::End);
                 self.mode = Mode::Insert;
                 self.document.insert(&self.cursor_position, '\n');
-                self.move_cursor(Key::Up);
+                self.move_cursor(Key::Down);
             }
             's' => {
                 self.mode = Mode::Insert;
@@ -249,7 +257,9 @@ impl Editor {
                 self.document.delete(&self.cursor_position);
                 self.mode = Mode::Visual;
             }
-            'x' => self.document.delete(&self.cursor_position),
+            'x' => {
+                self.document.delete(&self.cursor_position);
+            }
             'd' => {
                 self.move_cursor(Key::Home);
                 if let Some(row) = self.document.row(self.cursor_position.y) {
@@ -290,24 +300,6 @@ impl Editor {
         }
     }
 
-    fn backspace_indent(&mut self) {
-        let end = self.cursor_position.x;
-        let start = end.saturating_sub(3);
-        let num_spaces = end - start;
-        if let Some(row) = self.document.row(self.cursor_position.y) {
-            let spaces = row.get_slice(start, end);
-            if spaces == " ".repeat(num_spaces)
-                && self.cursor_position.x % 4 == 3
-                || self.cursor_position.x < 4
-            {
-                for _ in 0..num_spaces {
-                    self.move_cursor(Key::Left);
-                    self.document.delete(&self.cursor_position);
-                }
-            }
-        }
-    }
-
     fn process_keypress(&mut self) -> Result<(), std::io::Error> {
         let pressed_key = Terminal::read_key()?;
         match pressed_key {
@@ -318,13 +310,15 @@ impl Editor {
                 }
             }
             Key::Esc => self.mode = Mode::Visual,
-            Key::Delete => self.document.delete(&self.cursor_position),
+            Key::Delete => {
+                self.document.delete(&self.cursor_position);
+            }
             Key::Backspace => {
                 if self.cursor_position.x > 0 || self.cursor_position.y > 0 {
                     self.move_cursor(Key::Left);
                     if self.mode == Mode::Insert {
-                        self.document.delete(&self.cursor_position);
-                        self.backspace_indent();
+                        let deleted = self.document.delete(&self.cursor_position);
+                        self.cursor_position.x = self.cursor_position.x.saturating_sub(deleted);
                     }
                 }
             }

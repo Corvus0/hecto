@@ -87,10 +87,11 @@ impl Document {
     }
 
     #[allow(clippy::integer_arithmetic, clippy::indexing_slicing)]
-    pub fn delete(&mut self, at: &Position) {
+    pub fn delete(&mut self, at: &Position) -> usize {
+        let mut deleted = 0;
         let len = self.rows.len();
         if at.y >= len {
-            return;
+            return deleted;
         }
         self.dirty = true;
         if at.x == self.rows[at.y].len() && at.y + 1 < len {
@@ -99,9 +100,10 @@ impl Document {
             row.append(&next_row);
         } else {
             let row = &mut self.rows[at.y];
-            row.delete(at.x);
+            deleted = row.delete(at.x);
         }
         self.unhighlight_rows(at.y);
+        deleted
     }
 
     pub fn save(&mut self) -> Result<usize, Error> {
