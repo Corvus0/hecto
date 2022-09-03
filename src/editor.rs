@@ -184,6 +184,32 @@ impl Editor {
         self.highlighted_word = None;
     }
 
+    fn execute_command(&mut self) {
+        let input = self.prompt(":", |_, _, _,| {}).unwrap_or(None).unwrap_or("".to_string());
+        let mut commands = input.chars().peekable();
+        while let Some(c) = commands.next() {
+            match c {
+                'w' => self.save(),
+                'q' => {
+                    if self.document.is_dirty() {
+                        self.status_message = StatusMessage::from(format!(
+                            "WARNING! File has unsaved changes.",
+                        ));
+                        if let Some(next) = commands.peek() {
+                            if *next == '!' {
+                                commands.next();
+                                self.should_quit = true;
+                            }
+                        }
+                    } else {
+                        self.should_quit = true;
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+
     fn visual_mode(&mut self, c: char) {
         match c {
             'i' => self.mode = Mode::Insert,
@@ -220,31 +246,7 @@ impl Editor {
                 }
             }
             '/' => self.search(),
-            ':' => {
-                let input = self.prompt(":", |_, _, _,| {}).unwrap_or(None).unwrap_or("".to_string());
-                let mut commands = input.chars().peekable();
-                while let Some(c) = commands.next() {
-                    match c {
-                        'w' => self.save(),
-                        'q' => {
-                            if self.document.is_dirty() {
-                                self.status_message = StatusMessage::from(format!(
-                                    "WARNING! File has unsaved changes.",
-                                ));
-                                if let Some(next) = commands.peek() {
-                                    if *next == '!' {
-                                        commands.next();
-                                        self.should_quit = true;
-                                    }
-                                }
-                            } else {
-                                self.should_quit = true;
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-            }
+            ':' => self.execute_command(),
             _ => (),
         }
     }
