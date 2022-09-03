@@ -68,6 +68,13 @@ impl Row {
         self.len == 0
     }
 
+    pub fn get_slice(&self, start: usize, end: usize) -> Option<&str> {
+       if start.saturating_add(1) >= self.len() || end > self.len() {
+            return None;
+        }
+        Some(&self.string[start..end])
+    }
+
     pub fn insert(&mut self, at: usize, c: char) {
         if at >= self.len() {
             self.string.push(c);

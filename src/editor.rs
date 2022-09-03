@@ -205,7 +205,9 @@ impl Editor {
                         self.should_quit = true;
                     }
                 }
-                _ => (),
+                _ => self.status_message = StatusMessage::from(format!(
+                    "Command not found: {}", c
+                )),
             }
         }
     }
@@ -269,7 +271,7 @@ impl Editor {
                     Mode::Insert => {
                         match c {
                             '\t' => {
-                                for _ in 0..4 {
+                                for _ in (self.cursor_position.x % 4)..4 {
                                     self.document.insert(&self.cursor_position, ' ');
                                     self.move_cursor(Key::Right);
                                 }
@@ -290,6 +292,17 @@ impl Editor {
                     self.move_cursor(Key::Left);
                     if self.mode == Mode::Insert {
                         self.document.delete(&self.cursor_position);
+                        let end = self.cursor_position.x;
+                        if let Some(ref row) = self.document.row(self.cursor_position.y) {
+                            if let Some(spaces) = row.get_slice(end.saturating_sub(3), end) {
+                                if spaces == "   " && self.cursor_position.x % 4 == 3 {
+                                    for _ in 0..3 {
+                                        self.move_cursor(Key::Left);
+                                        self.document.delete(&self.cursor_position);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
