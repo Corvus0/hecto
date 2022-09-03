@@ -17,7 +17,7 @@ pub enum SearchDirection {
     Forward,
     Backward,
 }
-
+#[derive(PartialEq, Copy, Clone)]
 enum Mode {
     Insert,
     Visual,
@@ -236,6 +236,14 @@ impl Editor {
                 self.document.insert(&self.cursor_position, '\n');
                 self.move_cursor(Key::Up);
             }
+            's' => {
+                self.mode = Mode::Insert;
+                if let Err(error) = self.process_keypress() {
+                    die(&error);
+                }
+                self.document.delete(&self.cursor_position);
+                self.mode = Mode::Visual;
+            }
             'x' => self.document.delete(&self.cursor_position),
             'd' => {
                 self.move_cursor(Key::Home);
@@ -268,7 +276,9 @@ impl Editor {
             Key::Backspace => {
                 if self.cursor_position.x > 0 || self.cursor_position.y > 0 {
                     self.move_cursor(Key::Left);
-                    self.document.delete(&self.cursor_position);
+                    if self.mode == Mode::Insert {
+                        self.document.delete(&self.cursor_position);
+                    }
                 }
             }
             Key::Up
