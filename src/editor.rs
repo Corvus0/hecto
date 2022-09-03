@@ -192,6 +192,14 @@ impl Editor {
             .prompt(":", |_, _, _| {})
             .unwrap_or(None)
             .unwrap_or("".to_string());
+        if let Ok(line_number) = input.parse::<usize>() {
+            self.cursor_position.y = if line_number < self.document.len() {
+                line_number.saturating_sub(1)
+            } else {
+                self.document.len()
+            };
+            return;
+        }
         let mut commands = input.chars().peekable();
         while let Some(c) = commands.next() {
             match c {
