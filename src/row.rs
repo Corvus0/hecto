@@ -102,7 +102,7 @@ impl Row {
             if index != at {
                 result.push_str(grapheme);
             }
-        }
+        };
         self.len -= 1;
         self.string = result;
     }
@@ -115,17 +115,9 @@ impl Row {
     pub fn split(&mut self, at: usize) -> Self {
         let mut row: String = String::new();
         let mut length = 0;
-        let mut spaces = 0;
-        let mut indentation = true;
         let mut splitted_row: String = String::new();
         for (index, grapheme) in self.string[..].graphemes(true).enumerate() {
             if index < at {
-                if self.string[..].graphemes(true).nth(index).unwrap() != &" "[..] {
-                    indentation = false;
-                }
-                if indentation {
-                    spaces += 1;
-                }
                 length += 1;
                 row.push_str(grapheme);
             } else {
@@ -133,7 +125,7 @@ impl Row {
             }
         }
 
-        spaces = spaces - (spaces % 4);
+        let spaces = self.indentation();
         splitted_row.insert_str(0, &" ".repeat(spaces)[..]);
         let splitted_length = self.len - length + spaces;
         self.string = row;
@@ -145,6 +137,17 @@ impl Row {
             is_highlighted: false,
             highlighting: Vec::new(),
         }
+    }
+
+    pub fn indentation(&self) -> usize {
+        let mut spaces = 0;
+        for grapheme in self.string[..].graphemes(true) {
+            if grapheme != &" "[..] {
+                break;
+            }
+            spaces += 1;
+        }
+        spaces - (spaces % 4)
     }
 
     pub fn as_bytes(&self) -> &[u8] {

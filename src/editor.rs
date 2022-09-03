@@ -277,13 +277,7 @@ impl Editor {
                 self.move_cursor(Key::Right);
                 let mut spaces = 0;
                 if let Some(row) = self.document.row(self.cursor_position.y) {
-                    let slice = row.get_slice(0, row.len());
-                    for i in 0..row.len() {
-                        if !slice.chars().nth(i).unwrap().is_ascii_whitespace() {
-                            break;
-                        }
-                        spaces += 1;
-                    }
+                    spaces = row.indentation();
                 }
                 for _ in 0..spaces {
                     self.move_cursor(Key::Right);
@@ -292,6 +286,24 @@ impl Editor {
             _ => {
                 self.document.insert(&self.cursor_position, c);
                 self.move_cursor(Key::Right);
+            }
+        }
+    }
+
+    fn backspace_indent(&mut self) {
+        let end = self.cursor_position.x;
+        let start = end.saturating_sub(3);
+        let num_spaces = end - start;
+        if let Some(row) = self.document.row(self.cursor_position.y) {
+            let spaces = row.get_slice(start, end);
+            if spaces == " ".repeat(num_spaces)
+                && self.cursor_position.x % 4 == 3
+                || self.cursor_position.x < 4
+            {
+                for _ in 0..num_spaces {
+                    self.move_cursor(Key::Left);
+                    self.document.delete(&self.cursor_position);
+                }
             }
         }
     }
@@ -312,21 +324,7 @@ impl Editor {
                     self.move_cursor(Key::Left);
                     if self.mode == Mode::Insert {
                         self.document.delete(&self.cursor_position);
-                        let end = self.cursor_position.x;
-                        let start = end.saturating_sub(3);
-                        let num_spaces = end - start;
-                        if let Some(row) = self.document.row(self.cursor_position.y) {
-                            let spaces = row.get_slice(start, end);
-                            if spaces == " ".repeat(num_spaces)
-                                && self.cursor_position.x % 4 == 3
-                                || self.cursor_position.x < 4
-                            {
-                                for _ in 0..num_spaces {
-                                    self.move_cursor(Key::Left);
-                                    self.document.delete(&self.cursor_position);
-                                }
-                            }
-                        }
+                        self.backspace_indent();
                     }
                 }
             }
