@@ -21,6 +21,8 @@ pub enum SearchDirection {
 #[derive(PartialEq, Copy, Clone)]
 enum Mode {
     Insert,
+    Normal,
+    Replace,
     Visual,
 }
 
@@ -96,7 +98,7 @@ impl Editor {
             status_message: StatusMessage::from(initial_status),
             highlighted_word: None,
             clipboard: None,
-            mode: Mode::Visual,
+            mode: Mode::Normal,
         }
     }
 
@@ -225,7 +227,7 @@ impl Editor {
         }
     }
 
-    fn visual_mode(&mut self, c: char) {
+    fn normal_mode(&mut self, c: char) {
         if let Some(n) = c.to_digit(10) {
             if let Ok(input) = self.prompt(&format!("{}", n)[..], |_, _, _| {}) {
                 if let Some(mut input) = input {
@@ -233,7 +235,7 @@ impl Editor {
                     if let Some(command) = input.pop() {
                         if let Ok(repeats) = input.parse() {
                             for _ in 0..repeats {
-                                self.visual_mode(command);
+                                self.normal_mode(command);
                             }
                         }
                     }
@@ -242,7 +244,6 @@ impl Editor {
             return;
         }
         match c {
-            'i' => self.mode = Mode::Insert,
             'h' => self.move_cursor(Key::Left),
             'j' => self.move_cursor(Key::Down),
             'k' => self.move_cursor(Key::Up),
@@ -261,6 +262,11 @@ impl Editor {
             }
             'A' => {
                 self.move_cursor(Key::End);
+                self.mode = Mode::Insert;
+            }
+            'i' => self.mode = Mode::Insert,
+            'I' => {
+                self.move_cursor(Key::Home);
                 self.mode = Mode::Insert;
             }
             'o' => {
@@ -282,7 +288,7 @@ impl Editor {
                     die(&error);
                 }
                 self.document.delete(&self.cursor_position);
-                self.mode = Mode::Visual;
+                self.mode = Mode::Normal;
             }
             'x' => {
                 self.document.delete(&self.cursor_position);
@@ -314,6 +320,8 @@ impl Editor {
                     }
                 }
             }
+            'r' => self.mode = Mode::Replace,
+            'v' => self.mode = Mode::Visual,
             '/' => self.search(),
             ':' => self.execute_command(),
             _ => (),
@@ -345,14 +353,32 @@ impl Editor {
         }
     }
 
+    fn replace_mode(&mut self, c: char) {
+        match c {
+            '\t' | '\n' => self.insert_mode(c),
+            _ => {
+                self.document.delete(&self.cursor_position);
+                self.document.insert(&self.cursor_position, c);
+                self.move_cursor(Key::Right);
+            }
+        }
+    }
+
+    fn visual_mode(&mut self, c: char) {
+        return;
+        todo!();
+    }
+
     fn process_keypress(&mut self) -> Result<(), std::io::Error> {
         let pressed_key = Terminal::read_key()?;
         match pressed_key {
             Key::Char(c) => match self.mode {
                 Mode::Insert => self.insert_mode(c),
+                Mode::Normal => self.normal_mode(c),
+                Mode::Replace => self.replace_mode(c),
                 Mode::Visual => self.visual_mode(c),
             },
-            Key::Esc => self.mode = Mode::Visual,
+            Key::Esc => self.mode = Mode::Normal,
             Key::Delete => {
                 self.document.delete(&self.cursor_position);
             }
@@ -544,6 +570,8 @@ impl Editor {
         }
         let mode = match self.mode {
             Mode::Insert => "INSERT MODE",
+            Mode::Normal => "NORMAL MODE",
+            Mode::Replace => "REPLACE MODE",
             Mode::Visual => "VISUAL MODE",
         }
         .to_string();
