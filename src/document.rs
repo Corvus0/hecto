@@ -104,18 +104,21 @@ impl Document {
         self.unhighlight_rows(at.y);
     }
 
-    pub fn save(&mut self) -> Result<(), Error> {
+    pub fn save(&mut self) -> Result<usize, Error> {
+        let mut bytes_written = 0;
         if let Some(file_name) = &self.file_name {
             let mut file = fs::File::create(file_name)?;
             self.file_type = FileType::from(file_name);
             for row in &mut self.rows {
-                file.write_all(row.as_bytes())?;
+                let row_bytes = row.as_bytes();
+                file.write_all(row_bytes)?;
                 file.write_all(b"\n")?;
+                bytes_written += row_bytes.len() + 1;
             }
             self.file_type = FileType::from(file_name);
             self.dirty = false;
         }
-        Ok(())
+        Ok(bytes_written)
     }
 
     pub fn is_dirty(&self) -> bool {

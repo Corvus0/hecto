@@ -8,7 +8,6 @@ use termion::color;
 use termion::event::Key;
 use unicode_segmentation::UnicodeSegmentation;
 
-const QUIT_TIMES: u8 = 3;
 const STATUS_FG_COLOR: color::Rgb = color::Rgb(63, 63, 63);
 const STATUS_BG_COLOR: color::Rgb = color::Rgb(239, 239, 239);
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -52,7 +51,6 @@ pub struct Editor {
     offset: Position,
     document: Document,
     status_message: StatusMessage,
-    quit_times: u8,
     highlighted_word: Option<String>,
     mode: Mode,
 }
@@ -75,7 +73,7 @@ impl Editor {
     pub fn default() -> Self {
         let args: Vec<String> = env::args().collect();
         let mut initial_status =
-            String::from("HELP: Ctrl-F = find | Ctrl-S = save | Ctrl-Q = quit");
+            String::from(": for commands");
         let document = if let Some(file_name) = args.get(1) {
             let doc = Document::open(&file_name);
             if let Ok(doc) = doc {
@@ -95,7 +93,6 @@ impl Editor {
             offset: Position::default(),
             document,
             status_message: StatusMessage::from(initial_status),
-            quit_times: QUIT_TIMES,
             highlighted_word: None,
             mode: Mode::Visual,
         }
@@ -140,8 +137,10 @@ impl Editor {
             self.document.file_name = new_name;
         }
 
-        if self.document.save().is_ok() {
-            self.status_message = StatusMessage::from("File saved successfully.".to_string());
+        if let Ok(bytes_written) = self.document.save() {
+            self.status_message = StatusMessage::from(format!(
+                "File saved successfully. {} Bytes Written", bytes_written
+            ));
         } else {
             self.status_message = StatusMessage::from("Error writing file!".to_string());
         }
@@ -220,6 +219,32 @@ impl Editor {
                     }
                 }
             }
+            '/' => self.search(),
+            ':' => {
+                let input = self.prompt(":", |_, _, _,| {}).unwrap_or(None).unwrap_or("".to_string());
+                let mut commands = input.chars().peekable();
+                while let Some(c) = commands.next() {
+                    match c {
+                        'w' => self.save(),
+                        'q' => {
+                            if self.document.is_dirty() {
+                                self.status_message = StatusMessage::from(format!(
+                                    "WARNING! File has unsaved changes.",
+                                ));
+                                if let Some(next) = commands.peek() {
+                                    if *next == '!' {
+                                        commands.next();
+                                        self.should_quit = true;
+                                    }
+                                }
+                            } else {
+                                self.should_quit = true;
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            }
             _ => (),
         }
     }
@@ -227,19 +252,6 @@ impl Editor {
     fn process_keypress(&mut self) -> Result<(), std::io::Error> {
         let pressed_key = Terminal::read_key()?;
         match pressed_key {
-            Key::Ctrl('q') => {
-                if self.quit_times > 0 && self.document.is_dirty() {
-                    self.status_message = StatusMessage::from(format!(
-                        "WARNING! File has unsaved changes. Press Ctrl-Q {} more times to quit.",
-                        self.quit_times
-                    ));
-                    self.quit_times -= 1;
-                    return Ok(());
-                }
-                self.should_quit = true;
-            }
-            Key::Ctrl('s') => self.save(),
-            Key::Ctrl('f') => self.search(),
             Key::Char(c) => {
                 match self.mode {
                     Mode::Insert => {
@@ -268,10 +280,6 @@ impl Editor {
             _ => (),
         }
         self.scroll();
-        if self.quit_times < QUIT_TIMES {
-            self.quit_times = QUIT_TIMES;
-            self.status_message = StatusMessage::from(String::new());
-        }
         Ok(())
     }
 
@@ -298,7 +306,7 @@ impl Editor {
         } else if screen_x < width_edge {
             offset.x = offset.x.saturating_sub(width_edge - screen_x);
         } else if x >= offset.x.saturating_add(width) {
-            offset.x = x.saturating_sub(width).saturating_add(width_edge + 1);
+            offset.x = x.saturating_sub(width).saturating_add(width_edge);
         } else if screen_x >= width - width_edge {
             offset.x = offset.x.saturating_add(screen_x - (width - width_edge));
         }
