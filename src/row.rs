@@ -114,9 +114,17 @@ impl Row {
     pub fn split(&mut self, at: usize) -> Self {
         let mut row: String = String::new();
         let mut length = 0;
+        let mut spaces = 0;
+        let mut indentation = true;
         let mut splitted_row: String = String::new();
         for (index, grapheme) in self.string[..].graphemes(true).enumerate() {
             if index < at {
+                if self.string[..].graphemes(true).nth(index).unwrap() != &" "[..] {
+                    indentation = false;
+                }
+                if indentation {
+                    spaces += 1;
+                }
                 length += 1;
                 row.push_str(grapheme);
             } else {
@@ -124,7 +132,9 @@ impl Row {
             }
         }
 
-        let splitted_length = self.len - length;
+        spaces = spaces - (spaces % 4);
+        splitted_row.insert_str(0, &" ".repeat(spaces)[..]);
+        let splitted_length = self.len - length + spaces;
         self.string = row;
         self.len = length;
         self.is_highlighted = false;

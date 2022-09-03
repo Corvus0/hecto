@@ -17,6 +17,7 @@ pub enum SearchDirection {
     Forward,
     Backward,
 }
+
 #[derive(PartialEq, Copy, Clone)]
 enum Mode {
     Insert,
@@ -263,25 +264,45 @@ impl Editor {
         }
     }
 
+    fn insert_mode(&mut self, c: char) {
+        match c {
+            '\t' => {
+                for _ in (self.cursor_position.x % 4)..4 {
+                    self.document.insert(&self.cursor_position, ' ');
+                    self.move_cursor(Key::Right);
+                }
+            }
+            '\n' => {
+                self.document.insert(&self.cursor_position, c);
+                self.move_cursor(Key::Right);
+                let mut spaces = 0;
+                if let Some(ref row) = self.document.row(self.cursor_position.y) {
+                    if let Some(slice) = row.get_slice(0, row.len()) {
+                        for i in 0..row.len() {
+                            if !slice.chars().nth(i).unwrap().is_ascii_whitespace() {
+                                break;
+                            }
+                            spaces += 1;
+                        }
+                    }
+                }
+                for _ in 0..spaces {
+                    self.move_cursor(Key::Right);
+                }
+            }
+            _ => {
+                self.document.insert(&self.cursor_position, c);
+                self.move_cursor(Key::Right);
+            }
+        }
+    }
+
     fn process_keypress(&mut self) -> Result<(), std::io::Error> {
         let pressed_key = Terminal::read_key()?;
         match pressed_key {
             Key::Char(c) => {
                 match self.mode {
-                    Mode::Insert => {
-                        match c {
-                            '\t' => {
-                                for _ in (self.cursor_position.x % 4)..4 {
-                                    self.document.insert(&self.cursor_position, ' ');
-                                    self.move_cursor(Key::Right);
-                                }
-                            }
-                            _ => {
-                                self.document.insert(&self.cursor_position, c);
-                                self.move_cursor(Key::Right);
-                            }
-                        }
-                    }
+                    Mode::Insert => self.insert_mode(c),
                     Mode::Visual => self.visual_mode(c),
                 }
             }
