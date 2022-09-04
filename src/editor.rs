@@ -322,8 +322,12 @@ impl Editor {
             }
             'x' => {
                 if let Some(row) = self.document.row(self.cursor_position.y) {
-                    if row.len() > 0 {
+                    let row_len = row.len();
+                    if row_len > 0 {
                         self.document.delete(&self.cursor_position);
+                    }
+                    if self.cursor_position.x == row_len.saturating_sub(1) {
+                        self.move_cursor(Key::Left);
                     }
                 }
             }
