@@ -90,7 +90,7 @@ impl Row {
             return 0;
         }
         let start = at.saturating_sub(3);
-        let mut remove_spaces = at % 4 == 3;
+        let mut remove_spaces = at % 4 == 3 || at < 4;
         for i in start..=at {
             if let Some(grapheme) = self.string[..].graphemes(true).nth(i) {
                 if grapheme != &" "[..] {
