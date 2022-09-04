@@ -228,7 +228,10 @@ impl Editor {
                         self.should_quit = true;
                     }
                 }
-                _ => self.status_message = StatusMessage::from(format!("Command not found: {}", c)),
+                _ => {
+                    self.status_message = StatusMessage::from(format!("Command not found: {}", c));
+                    return;
+                }
             }
         }
     }
