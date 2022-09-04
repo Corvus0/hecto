@@ -233,68 +233,89 @@ impl Editor {
         }
     }
 
+    fn repeat_keypress(&mut self, n: u32) -> Result<(), std::io::Error> {
+        if n == 0 {
+            return Ok(());
+        }
+        let mut number_message = n.to_string();
+        self.status_message = StatusMessage::from(number_message.clone());
+        self.refresh_screen()?;
+        while let Key::Char(c) = Terminal::read_key()? {
+            if c.is_numeric() {
+                number_message.push(c);
+                self.status_message = StatusMessage::from(number_message.clone());
+                self.refresh_screen()?;
+            } else if c.is_alphabetic() {
+                if c == 'r' || c == 's' {
+                    break;
+                }
+                if let Ok(repeats) = number_message.parse() {
+                    for _ in 0..repeats {
+                        self.normal_mode(c);
+                    }
+                }
+                break;
+            } else {
+                break;
+            }
+        }
+        self.status_message = StatusMessage::from(String::new());
+        self.refresh_screen()?;
+        Ok(())
+    }
+
     fn normal_mode(&mut self, c: char) {
-        if let Some(n) = c.to_digit(10) {
-            if let Ok(input) = self.prompt(&format!("{}", n)[..], |_, _, _| {}) {
-                if let Some(mut input) = input {
-                    input.insert_str(0, &n.to_string()[..]);
-                    if let Some(command) = input.pop() {
-                        if let Ok(repeats) = input.parse() {
-                            for _ in 0..repeats {
-                                self.normal_mode(command);
-                            }
-                        }
+        match c {
+            c if c.is_numeric() => {
+                if let Some(n) = c.to_digit(10) {
+                    if let Err(error) = self.repeat_keypress(n) {
+                        die(&error);
                     }
                 }
             }
-            return;
-        }
-        match c {
             'h' => self.move_cursor(Key::Left),
             'j' => self.move_cursor(Key::Down),
             'k' => self.move_cursor(Key::Up),
             'l' => self.move_cursor(Key::Right),
-            'g' => {
-                self.cursor_position.y = 0;
+            'g' | 'G' => {
+                self.cursor_position.y = if c == 'g' { 0 } else { self.document.len() };
                 self.cursor_position.x = 0;
             }
-            'G' => {
-                self.cursor_position.y = self.document.len();
-                self.cursor_position.x = 0;
-            }
-            'a' => {
-                self.move_cursor(Key::Right);
+            'a' | 'A' | 'i' | 'I' => {
+                if c == 'a' {
+                    self.move_cursor(Key::Right);
+                } else if c == 'A' {
+                    self.move_cursor(Key::End);
+                } else if c == 'I' {
+                    self.move_cursor(Key::Home);
+                }
                 self.mode = Mode::Insert;
             }
-            'A' => {
-                self.move_cursor(Key::End);
+            'o' | 'O' => {
                 self.mode = Mode::Insert;
-            }
-            'i' => self.mode = Mode::Insert,
-            'I' => {
-                self.move_cursor(Key::Home);
-                self.mode = Mode::Insert;
-            }
-            'o' => {
-                self.move_cursor(Key::End);
-                self.mode = Mode::Insert;
+                if c == 'o' {
+                    self.move_cursor(Key::End);
+                } else {
+                    self.move_cursor(Key::Home);
+                    self.move_cursor(Key::Left);
+                }
                 self.document.insert(&self.cursor_position, '\n');
                 self.move_cursor(Key::Down);
             }
-            'O' => {
-                self.move_cursor(Key::Home);
-                self.mode = Mode::Insert;
-                self.move_cursor(Key::Left);
-                self.document.insert(&self.cursor_position, '\n');
-                self.move_cursor(Key::Down);
-            }
-            's' => {
-                self.mode = Mode::Insert;
-                if let Err(error) = self.process_keypress() {
+            'r' | 's' => {
+                let pressed_key = Terminal::read_key();
+                if let Ok(key) = pressed_key {
+                    self.document.delete(&self.cursor_position);
+                    match key {
+                        Key::Char(key) => self.document.insert(&self.cursor_position, key),
+                        _ => return,
+                    }
+                    if c == 's' {
+                        self.move_cursor(Key::Right);
+                    }
+                } else if let Err(error) = pressed_key {
                     die(&error);
                 }
-                self.document.delete(&self.cursor_position);
-                self.mode = Mode::Normal;
             }
             'x' => {
                 if let Some(row) = self.document.row(self.cursor_position.y) {
@@ -303,9 +324,14 @@ impl Editor {
                     }
                 }
             }
-            'y' => {
+            'd' | 'y' => {
                 if let Some(row) = self.document.row(self.cursor_position.y) {
                     self.clipboard = Some(row.contents().trim().to_string());
+                    if c == 'd' {
+                        for _ in 0..=row.len() {
+                            self.document.delete(&self.cursor_position);
+                        }
+                    }
                 }
             }
             'p' => {
@@ -321,16 +347,7 @@ impl Editor {
                     }
                 }
             }
-            'd' => {
-                self.move_cursor(Key::Home);
-                if let Some(row) = self.document.row(self.cursor_position.y) {
-                    self.clipboard = Some(row.contents().trim().to_string());
-                    for _ in 0..=row.len() {
-                        self.document.delete(&self.cursor_position);
-                    }
-                }
-            }
-            'r' => self.mode = Mode::Replace,
+            'R' => self.mode = Mode::Replace,
             'v' => self.mode = Mode::Visual,
             '/' => self.search(),
             ':' => self.execute_command(),
@@ -356,32 +373,21 @@ impl Editor {
                 }
                 self.cursor_position.x = self.cursor_position.x.saturating_add(spaces);
             }
-            '(' => {
+            '(' | '[' | '{' | '\'' | '"' => {
                 self.document.insert(&self.cursor_position, c);
                 self.move_cursor(Key::Right);
-                self.document.insert(&self.cursor_position, ')');
-            }
-            '[' => {
-                self.document.insert(&self.cursor_position, c);
-                self.move_cursor(Key::Right);
-                self.document.insert(&self.cursor_position, ']');
-            }
-            '{' => {
-                self.document.insert(&self.cursor_position, c);
-                self.move_cursor(Key::Right);
-                self.document.insert(&self.cursor_position, '}');
-            }
-            '\'' => {
-                self.document.insert(&self.cursor_position, c);
-                self.move_cursor(Key::Right);
-                if self.document.file_type() != "Rust" {
-                    self.document.insert(&self.cursor_position, c);
-                }
-            }
-            '"' => {
-                self.document.insert(&self.cursor_position, c);
-                self.move_cursor(Key::Right);
-                self.document.insert(&self.cursor_position, c);
+                let closing = if c == '(' {
+                    ')'
+                } else if c == '[' {
+                    ']'
+                } else if c == '{' {
+                    '}'
+                } else if c == '"' || self.document.file_type() != "Rust" {
+                    c
+                } else {
+                    return;
+                };
+                self.document.insert(&self.cursor_position, closing);
             }
             _ => {
                 self.document.insert(&self.cursor_position, c);
@@ -511,7 +517,7 @@ impl Editor {
                 let mut limit = width;
                 if self.mode == Mode::Normal {
                     limit = limit.saturating_sub(1);
-                } 
+                }
                 if x < limit {
                     x += 1;
                 } else if self.mode != Mode::Normal && y < height {
