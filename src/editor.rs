@@ -282,9 +282,9 @@ impl Editor {
                 self.move_cursor(Key::Down);
             }
             'O' => {
-                self.move_cursor(Key::Up);
-                self.move_cursor(Key::End);
+                self.move_cursor(Key::Home);
                 self.mode = Mode::Insert;
+                self.move_cursor(Key::Left);
                 self.document.insert(&self.cursor_position, '\n');
                 self.move_cursor(Key::Down);
             }
@@ -297,7 +297,11 @@ impl Editor {
                 self.mode = Mode::Normal;
             }
             'x' => {
-                self.document.delete(&self.cursor_position);
+                if let Some(row) = self.document.row(self.cursor_position.y) {
+                    if row.len() > 0 {
+                        self.document.delete(&self.cursor_position);
+                    }
+                }
             }
             'y' => {
                 if let Some(row) = self.document.row(self.cursor_position.y) {
@@ -493,7 +497,7 @@ impl Editor {
             Key::Left => {
                 if x > 0 {
                     x -= 1;
-                } else if y > 0 {
+                } else if self.mode != Mode::Normal && y > 0 {
                     y -= 1;
                     if let Some(row) = self.document.row(y) {
                         x = row.len();
@@ -504,9 +508,13 @@ impl Editor {
                 max_x = x;
             }
             Key::Right => {
-                if x < width {
+                let mut limit = width;
+                if self.mode == Mode::Normal {
+                    limit = limit.saturating_sub(1);
+                } 
+                if x < limit {
                     x += 1;
-                } else if y < height {
+                } else if self.mode != Mode::Normal && y < height {
                     y += 1;
                     x = 0;
                 }
