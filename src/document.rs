@@ -4,6 +4,7 @@ use crate::Row;
 use crate::SearchDirection;
 use std::fs;
 use std::io::{Error, Write};
+use std::path::Path;
 
 #[derive(Default)]
 pub struct Document {
@@ -109,7 +110,13 @@ impl Document {
     pub fn save(&mut self) -> Result<usize, Error> {
         let mut bytes_written = 0;
         if let Some(file_name) = &self.file_name {
-            let mut file = fs::File::create(file_name)?;
+            let file_exists = Path::new(file_name).exists();
+            let mut new_file_name = file_name.clone();
+            if file_exists {
+                new_file_name.insert_str(0, ".");
+                new_file_name.push_str("_new")
+            }
+            let mut file = fs::File::create(&new_file_name)?;
             self.file_type = FileType::from(file_name);
             for row in &mut self.rows {
                 let row_bytes = row.as_bytes();
@@ -117,7 +124,14 @@ impl Document {
                 file.write_all(b"\n")?;
                 bytes_written += row_bytes.len() + 1;
             }
-            self.file_type = FileType::from(file_name);
+            if file_exists {
+                let mut old_file_name = file_name.clone();
+                old_file_name.insert_str(0, ".");
+                old_file_name.push_str("_old");
+                fs::rename(file_name, &old_file_name)?;
+                fs::rename(&new_file_name, file_name)?;
+                fs::remove_file(&old_file_name)?;
+            }
             self.dirty = false;
         }
         Ok(bytes_written)

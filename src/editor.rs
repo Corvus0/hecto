@@ -134,6 +134,11 @@ impl Editor {
     }
 
     fn save(&mut self) {
+        if !self.document.is_dirty() {
+            self.status_message = StatusMessage::from("No changes to write.".to_string());
+            return;
+        }
+
         if self.document.file_name.is_none() {
             let new_name = self.prompt("Save as: ", |_, _, _| {}).unwrap_or(None);
             if new_name.is_none() {
@@ -143,7 +148,8 @@ impl Editor {
             self.document.file_name = new_name;
         }
 
-        if let Ok(bytes_written) = self.document.save() {
+        let save_result = self.document.save();
+        if let Ok(bytes_written) = save_result {
             self.status_message = StatusMessage::from(format!(
                 "File saved successfully: {} bytes written.",
                 bytes_written
