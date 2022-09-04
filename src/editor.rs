@@ -346,6 +346,33 @@ impl Editor {
                 }
                 self.cursor_position.x = self.cursor_position.x.saturating_add(spaces);
             }
+            '(' => {
+                self.document.insert(&self.cursor_position, c);
+                self.move_cursor(Key::Right);
+                self.document.insert(&self.cursor_position, ')');
+            }
+            '[' => {
+                self.document.insert(&self.cursor_position, c);
+                self.move_cursor(Key::Right);
+                self.document.insert(&self.cursor_position, ']');
+            }
+            '{' => {
+                self.document.insert(&self.cursor_position, c);
+                self.move_cursor(Key::Right);
+                self.document.insert(&self.cursor_position, '}');
+            }
+            '\'' => {
+                self.document.insert(&self.cursor_position, c);
+                self.move_cursor(Key::Right);
+                if self.document.file_type() != "Rust" {
+                    self.document.insert(&self.cursor_position, c);
+                }
+            }
+            '"' => {
+                self.document.insert(&self.cursor_position, c);
+                self.move_cursor(Key::Right);
+                self.document.insert(&self.cursor_position, c);
+            }
             _ => {
                 self.document.insert(&self.cursor_position, c);
                 self.move_cursor(Key::Right);
@@ -364,6 +391,9 @@ impl Editor {
         }
     }
 
+    // TODO: arrow keys select and highlight portions of document
+    // from starting position, enter sets clipboard content to
+    // selection and returns to normal mode
     fn visual_mode(&mut self, c: char) {
         return;
         todo!();
