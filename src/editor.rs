@@ -214,20 +214,62 @@ impl Editor {
         while let Some(c) = commands.next() {
             match c {
                 'w' => self.save(),
-                'q' => {
-                    if self.document.is_dirty() {
-                        self.status_message =
-                            StatusMessage::from(format!("WARNING! File has unsaved changes.",));
+                'q' | 'e' => {
+                    let mut force = false;
+                    let dirty = self.document.is_dirty();
+                    if dirty {
+                        force = false;
                         if let Some(next) = commands.peek() {
                             if *next == '!' {
                                 commands.next();
-                                self.should_quit = true;
+                                force = true;
                             }
+                        } else {
+                            self.status_message = StatusMessage::from(
+                                "WARNING! File has unsaved changes.".to_string(),
+                            );
                         }
-                    } else {
-                        self.should_quit = true;
+                    }
+                    if !dirty || force {
+                        if c == 'q' {
+                            self.should_quit = true;
+                        } else {
+                            let mut status = "File reset to previous saved version.".to_string();
+                            if let Some(file_name) = &self.document.file_name {
+                                self.document = if let Ok(doc) = Document::open(&file_name) {
+                                    let Position {
+                                        mut x,
+                                        mut y,
+                                        max_x: _,
+                                    } = self.cursor_position;
+                                    let doc_len = doc.len();
+                                    if y > doc_len {
+                                        y = doc_len;
+                                    }
+                                    x = if let Some(row) = doc.row(y) {
+                                        let row_len = row.len().saturating_sub(1);
+                                        if x > row_len {
+                                            row_len
+                                        } else {
+                                            x
+                                        }
+                                    } else {
+                                        0
+                                    };
+                                    self.cursor_position = Position { x, y, max_x: x };
+                                    doc
+                                } else {
+                                    status = format!("ERR: Could not open file: {}", file_name);
+                                    Document::default()
+                                };
+                            } else {
+                                status = "ERR: No previous saved version exists.".to_string();
+                            }
+                            self.status_message = StatusMessage::from(status);
+                        }
                     }
                 }
+                '!' => (),
                 _ => {
                     self.status_message = StatusMessage::from(format!("Command not found: {}", c));
                     return;
