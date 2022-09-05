@@ -11,6 +11,7 @@ pub struct Row {
     highlighting: Vec<highlighting::Type>,
     pub is_highlighted: bool,
     len: usize,
+    dirty: bool,
 }
 
 impl From<&str> for Row {
@@ -20,6 +21,7 @@ impl From<&str> for Row {
             highlighting: Vec::new(),
             is_highlighted: false,
             len: slice.graphemes(true).count(),
+            dirty: false,
         }
     }
 }
@@ -64,6 +66,10 @@ impl Row {
         self.len
     }
 
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -83,6 +89,7 @@ impl Row {
         }
         self.len += 1;
         self.string = result;
+        self.dirty = true;
     }
 
     pub fn delete(&mut self, at: usize) -> usize {
@@ -110,6 +117,7 @@ impl Row {
         }
         self.len -= deleted;
         self.string = result;
+        self.dirty = true;
         deleted.saturating_sub(1)
     }
 
@@ -131,17 +139,22 @@ impl Row {
             }
         }
 
-        let spaces = self.indentation();
+        let mut spaces = self.indentation();
+        if at < spaces {
+            spaces -= spaces - at;
+        }
         splitted_row.insert_str(0, &" ".repeat(spaces)[..]);
         let splitted_length = self.len - length + spaces;
         self.string = row;
         self.len = length;
         self.is_highlighted = false;
+        self.dirty = true;
         Self {
             string: splitted_row,
             len: splitted_length,
             is_highlighted: false,
             highlighting: Vec::new(),
+            dirty: true,
         }
     }
 

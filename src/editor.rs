@@ -197,82 +197,86 @@ impl Editor {
         self.highlighted_word = None;
     }
 
+    fn reset_document(&mut self) {
+        let mut status = "File reset to previous saved version.".to_string();
+        if let Some(file_name) = &self.document.file_name {
+            self.document = if let Ok(doc) = Document::open(&file_name) {
+                doc
+            } else {
+                status = format!("ERR: Could not open file: {}", file_name);
+                Document::default()
+            };
+            self.readjust_cursor();
+        } else {
+            status = "ERR: No previous saved version exists.".to_string();
+        }
+        self.status_message = StatusMessage::from(status);
+    }
+
     fn execute_command(&mut self) {
         let input = self
             .prompt(":", |_, _, _| {})
             .unwrap_or(None)
             .unwrap_or("".to_string());
-        if let Ok(line_number) = input.parse::<usize>() {
-            self.cursor_position.y = if line_number < self.document.len() {
-                line_number.saturating_sub(1)
-            } else {
-                self.document.len()
-            };
-            return;
-        }
         let mut commands = input.chars().peekable();
-        while let Some(c) = commands.next() {
-            match c {
-                'w' => self.save(),
-                'q' | 'e' => {
-                    let mut force = false;
-                    let dirty = self.document.is_dirty();
-                    if dirty {
-                        force = false;
-                        if let Some(next) = commands.peek() {
-                            if *next == '!' {
-                                commands.next();
-                                force = true;
-                            }
-                        } else {
-                            self.status_message = StatusMessage::from(
-                                "WARNING! File has unsaved changes.".to_string(),
-                            );
-                        }
-                    }
-                    if !dirty || force {
-                        if c == 'q' {
-                            self.should_quit = true;
-                        } else {
-                            let mut status = "File reset to previous saved version.".to_string();
-                            if let Some(file_name) = &self.document.file_name {
-                                self.document = if let Ok(doc) = Document::open(&file_name) {
-                                    let Position {
-                                        mut x,
-                                        mut y,
-                                        max_x: _,
-                                    } = self.cursor_position;
-                                    let doc_len = doc.len();
-                                    if y > doc_len {
-                                        y = doc_len;
-                                    }
-                                    x = if let Some(row) = doc.row(y) {
-                                        let row_len = row.len().saturating_sub(1);
-                                        if x > row_len {
-                                            row_len
-                                        } else {
-                                            x
-                                        }
-                                    } else {
-                                        0
-                                    };
-                                    self.cursor_position = Position { x, y, max_x: x };
-                                    doc
-                                } else {
-                                    status = format!("ERR: Could not open file: {}", file_name);
-                                    Document::default()
-                                };
-                            } else {
-                                status = "ERR: No previous saved version exists.".to_string();
-                            }
-                            self.status_message = StatusMessage::from(status);
-                        }
-                    }
+        let first_char = *commands.peek().unwrap_or(&' ');
+        if first_char == '+' || first_char == '-' {
+            if let Ok(line_num) = input.parse::<i64>() {
+                let mut y = self.cursor_position.y as i64 + line_num;
+                if y < 0 {
+                    y = 0;
                 }
-                '!' => (),
-                _ => {
-                    self.status_message = StatusMessage::from(format!("Command not found: {}", c));
-                    return;
+                self.cursor_position = Position {
+                    x: 0,
+                    y: y as usize,
+                    max_x: 0,
+                };
+                self.readjust_cursor();
+            } else {
+                self.status_message = StatusMessage::from(format!("Invalid offset: {}", input));
+            }
+        } else if let Ok(line_num) = input.parse::<usize>() {
+            self.cursor_position = Position {
+                x: 0,
+                y: line_num.saturating_sub(1),
+                max_x: 0,
+            };
+            self.readjust_cursor();
+        } else {
+            while let Some(c) = commands.next() {
+                match c {
+                    'w' => self.save(),
+                    'q' | 'e' => {
+                        let mut force = false;
+                        let dirty = self.document.is_dirty();
+                        if dirty {
+                            force = false;
+                            if let Some(next) = commands.peek() {
+                                if *next == '!' {
+                                    commands.next();
+                                    force = true;
+                                }
+                            } else {
+                                self.status_message = StatusMessage::from(
+                                    "WARNING! File has unsaved changes: add ! to override."
+                                        .to_string(),
+                                );
+                            }
+                        }
+                        if !dirty || force {
+                            if c == 'q' {
+                                self.should_quit = true;
+                            } else {
+                                self.reset_document();
+                            }
+                        }
+                    }
+                    '!' => (),
+                    _ => {
+                        self.status_message =
+                            StatusMessage::from(format!("Command not found: {}", c));
+                        return;
+                    }
                 }
             }
         }
@@ -350,9 +354,11 @@ impl Editor {
             'r' | 's' => {
                 let pressed_key = Terminal::read_key();
                 if let Ok(key) = pressed_key {
-                    self.document.delete(&self.cursor_position);
                     match key {
-                        Key::Char(key) => self.document.insert(&self.cursor_position, key),
+                        Key::Char(key) => {
+                            self.document.delete(&self.cursor_position);
+                            self.document.insert(&self.cursor_position, key);
+                        }
                         _ => return,
                     }
                     if c == 's' {
@@ -536,6 +542,29 @@ impl Editor {
         }
     }
 
+    fn readjust_cursor(&mut self) {
+        let Position {
+            mut x,
+            mut y,
+            max_x: _,
+        } = self.cursor_position;
+        let doc_len = self.document.len();
+        if y > doc_len {
+            y = doc_len;
+        }
+        x = if let Some(row) = self.document.row(y) {
+            let row_len = row.len().saturating_sub(1);
+            if x > row_len {
+                row_len
+            } else {
+                x
+            }
+        } else {
+            0
+        };
+        self.cursor_position = Position { x, y, max_x: x };
+    }
+
     fn move_cursor(&mut self, key: Key) {
         let terminal_height = self.terminal.size().height as usize;
         let Position {
@@ -634,13 +663,15 @@ impl Editor {
         let width = self.terminal.size().width as usize;
         let start = self.offset.x;
         let end = self.offset.x.saturating_add(width);
-        let row = row.render(start, end);
-        if self.cursor_position.y != num.saturating_sub(1) {
-            Terminal::set_fg_color(color::Rgb(85, 87, 83));
+        let render = row.render(start, end);
+        if row.is_dirty() {
+            Terminal::set_fg_color(color::Rgb(128, 0, 0));
+        } else if self.cursor_position.y != num.saturating_sub(1) {
+            Terminal::set_fg_color(color::Rgb(85, 85, 85));
         }
         print!("{:>4} ", num);
         Terminal::reset_fg_color();
-        println!("{}\r", row);
+        println!("{}\r", render);
     }
 
     #[allow(clippy::integer_arithmetic, clippy::integer_division)]
