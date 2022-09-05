@@ -285,6 +285,7 @@ impl Editor {
                 self.cursor_position.x = 0;
             }
             'a' | 'A' | 'i' | 'I' => {
+                self.mode = Mode::Insert;
                 if c == 'a' {
                     self.move_cursor(Key::Right);
                 } else if c == 'A' {
@@ -292,7 +293,6 @@ impl Editor {
                 } else if c == 'I' {
                     self.move_cursor(Key::Home);
                 }
-                self.mode = Mode::Insert;
             }
             'o' | 'O' => {
                 self.mode = Mode::Insert;
@@ -335,7 +335,9 @@ impl Editor {
                 if let Some(row) = self.document.row(self.cursor_position.y) {
                     self.clipboard = Some(row.contents().trim().to_string());
                     if c == 'd' {
-                        for _ in 0..=row.len() {
+                        let row_len = row.len();
+                        self.move_cursor(Key::Home);
+                        for _ in 0..=row_len {
                             self.document.delete(&self.cursor_position);
                         }
                     }
@@ -431,7 +433,12 @@ impl Editor {
                 Mode::Replace => self.replace_mode(c),
                 Mode::Visual => self.visual_mode(c),
             },
-            Key::Esc => self.mode = Mode::Normal,
+            Key::Esc => {
+                if self.mode != Mode::Normal {
+                    self.mode = Mode::Normal;
+                    self.move_cursor(Key::Left);
+                }
+            }
             Key::Delete => {
                 self.document.delete(&self.cursor_position);
             }

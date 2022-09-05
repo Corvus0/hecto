@@ -113,7 +113,6 @@ impl Document {
             let file_exists = Path::new(file_name).exists();
             let mut new_file_name = file_name.clone();
             if file_exists {
-                new_file_name.insert_str(0, ".");
                 new_file_name.push_str("_new")
             }
             let mut file = fs::File::create(&new_file_name)?;
@@ -126,7 +125,6 @@ impl Document {
             }
             if file_exists {
                 let mut old_file_name = file_name.clone();
-                old_file_name.insert_str(0, ".");
                 old_file_name.push_str("_old");
                 fs::rename(file_name, &old_file_name)?;
                 fs::rename(&new_file_name, file_name)?;
