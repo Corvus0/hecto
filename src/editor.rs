@@ -643,6 +643,9 @@ impl Editor {
         } else {
             0
         };
+        if self.mode == Mode::Normal {
+            width = width.saturating_sub(1);
+        }
         x = max_x;
         if x > width {
             x = width;
