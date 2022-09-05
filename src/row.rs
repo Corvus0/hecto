@@ -66,6 +66,10 @@ impl Row {
         self.len
     }
 
+    pub fn save(&mut self) {
+        self.dirty = false;
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }
@@ -140,11 +144,14 @@ impl Row {
         }
 
         let mut spaces = self.indentation();
+        let mut splitted_length = self.len - length + spaces;
         if at < spaces {
+            row.insert_str(0, &" ".repeat(spaces - at)[..]);
+            length += spaces - at;
+            splitted_length = self.len - length + spaces;
             spaces -= spaces - at;
         }
         splitted_row.insert_str(0, &" ".repeat(spaces)[..]);
-        let splitted_length = self.len - length + spaces;
         self.string = row;
         self.len = length;
         self.is_highlighted = false;

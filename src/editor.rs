@@ -329,6 +329,7 @@ impl Editor {
             'g' | 'G' => {
                 self.cursor_position.y = if c == 'g' { 0 } else { self.document.len() };
                 self.cursor_position.x = 0;
+                self.cursor_position.max_x = 0;
             }
             'a' | 'A' | 'i' | 'I' => {
                 self.mode = Mode::Insert;
@@ -418,8 +419,8 @@ impl Editor {
                 let spaces = 4 - self.cursor_position.x % 4;
                 for _ in 0..spaces {
                     self.document.insert(&self.cursor_position, ' ');
+                    self.move_cursor(Key::Right);
                 }
-                self.cursor_position.x = self.cursor_position.x.saturating_add(spaces);
             }
             '\n' => {
                 self.document.insert(&self.cursor_position, c);
@@ -428,7 +429,9 @@ impl Editor {
                 if let Some(row) = self.document.row(self.cursor_position.y) {
                     spaces = row.indentation();
                 }
-                self.cursor_position.x = self.cursor_position.x.saturating_add(spaces);
+                for _ in 0..spaces.saturating_sub(self.cursor_position.x) {
+                    self.move_cursor(Key::Right);
+                }
             }
             '(' | '[' | '{' | '\'' | '"' => {
                 self.document.insert(&self.cursor_position, c);
@@ -496,6 +499,7 @@ impl Editor {
                     if self.mode == Mode::Insert {
                         let deleted = self.document.delete(&self.cursor_position);
                         self.cursor_position.x = self.cursor_position.x.saturating_sub(deleted);
+                        self.cursor_position.max_x = self.cursor_position.x;
                     }
                 }
             }
@@ -664,9 +668,12 @@ impl Editor {
         let start = self.offset.x;
         let end = self.offset.x.saturating_add(width);
         let render = row.render(start, end);
-        if row.is_dirty() {
+        let cursor_on_row = self.cursor_position.y == num.saturating_sub(1);
+        if row.is_dirty() && !cursor_on_row {
             Terminal::set_fg_color(color::Rgb(128, 0, 0));
-        } else if self.cursor_position.y != num.saturating_sub(1) {
+        } else if row.is_dirty() && cursor_on_row {
+            Terminal::set_fg_color(color::Rgb(196, 72, 72));
+        } else if !cursor_on_row {
             Terminal::set_fg_color(color::Rgb(85, 85, 85));
         }
         print!("{:>4} ", num);

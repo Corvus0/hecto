@@ -122,6 +122,7 @@ impl Document {
                 file.write_all(row_bytes)?;
                 file.write_all(b"\n")?;
                 bytes_written += row_bytes.len() + 1;
+                row.save();
             }
             if file_exists {
                 let mut old_file_name = file_name.clone();
