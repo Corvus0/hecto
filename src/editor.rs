@@ -507,6 +507,9 @@ impl Editor {
         } else {
             0
         };
+        if self.mode == Mode::Normal {
+            width = width.saturating_sub(1);
+        }
         match key {
             Key::Up => y = y.saturating_sub(1),
             Key::Down => {
@@ -528,11 +531,7 @@ impl Editor {
                 max_x = x;
             }
             Key::Right => {
-                let mut limit = width;
-                if self.mode == Mode::Normal {
-                    limit = limit.saturating_sub(1);
-                }
-                if x < limit {
+                if x < width {
                     x += 1;
                 } else if self.mode != Mode::Normal && y < height {
                     y += 1;
