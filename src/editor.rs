@@ -2,8 +2,6 @@ use crate::Document;
 use crate::Row;
 use crate::Terminal;
 use std::env;
-use std::env::current_dir;
-use std::env::set_current_dir;
 use std::path::Path;
 use std::time::Duration;
 use std::time::Instant;
@@ -217,7 +215,7 @@ impl Editor {
     }
 
     fn show_cwd(&mut self) {
-        if let Ok(cwd) = current_dir() {
+        if let Ok(cwd) = env::current_dir() {
             self.status_message = StatusMessage::from(format!("CWD is {}", cwd.display()))
         } else {
             self.status_message = StatusMessage::from(format!("ERR: CWD does not exist"))
@@ -265,7 +263,7 @@ impl Editor {
                         if let Some(path) = input.split_whitespace().collect::<Vec<&str>>().get(1) {
                             let dir = Path::new(path);
                             if dir.exists() {
-                                set_current_dir(dir);
+                                env::set_current_dir(dir);
                                 self.show_cwd();
                             } else {
                                 self.status_message = StatusMessage::from(format!(
