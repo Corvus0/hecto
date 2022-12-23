@@ -70,6 +70,8 @@ impl Row {
         self.dirty = false;
     }
 
+    // TODO: Edits go to copy of old row,
+    // if edits are undone, unset dirty flag
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }

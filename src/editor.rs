@@ -2,6 +2,9 @@ use crate::Document;
 use crate::Row;
 use crate::Terminal;
 use std::env;
+use std::env::current_dir;
+use std::env::set_current_dir;
+use std::path::Path;
 use std::time::Duration;
 use std::time::Instant;
 use termion::color;
@@ -213,6 +216,17 @@ impl Editor {
         self.status_message = StatusMessage::from(status);
     }
 
+    fn show_cwd(&mut self) {
+        if let Ok(cwd) = current_dir() {
+            self.status_message = StatusMessage::from(format!("CWD is {}", cwd.display()))
+        } else {
+            self.status_message = StatusMessage::from(format!("ERR: CWD does not exist"))
+        }
+    }
+
+    // TODO: Improve command parsing
+    // Split inputs by whitespace first and process entire words as commands
+    // if no match and only one word then split commands by characters
     fn execute_command(&mut self) {
         let input = self
             .prompt(":", |_, _, _| {})
@@ -246,28 +260,63 @@ impl Editor {
             while let Some(c) = commands.next() {
                 match c {
                     'w' => self.save(),
-                    'q' | 'e' => {
-                        let mut force = false;
-                        let dirty = self.document.is_dirty();
-                        if dirty {
-                            force = false;
-                            if let Some(next) = commands.peek() {
-                                if *next == '!' {
-                                    commands.next();
-                                    force = true;
-                                }
+                    'p' => self.show_cwd(),
+                    'c' => {
+                        if let Some(path) = input.split_whitespace().collect::<Vec<&str>>().get(1) {
+                            let dir = Path::new(path);
+                            if dir.exists() {
+                                set_current_dir(dir);
+                                self.show_cwd();
                             } else {
-                                self.status_message = StatusMessage::from(
-                                    "WARNING! File has unsaved changes: add ! to override."
-                                        .to_string(),
-                                );
-                            }
+                                self.status_message = StatusMessage::from(format!(
+                                    "ERR: Path does not exist: {}",
+                                    path
+                                ));
+                            };
+                            return;
+                        } else {
+                            self.status_message =
+                                StatusMessage::from(format!("ERR: No path entered"));
+                        }
+                    }
+                    'q' | 'e' => {
+                        let mut force = input.contains("!");
+                        let dirty = self.document.is_dirty();
+                        if dirty && !force {
+                            self.status_message = StatusMessage::from(
+                                "WARNING! File has unsaved changes: add ! to override.".to_string(),
+                            );
+                            return;
                         }
                         if !dirty || force {
-                            if c == 'q' {
-                                self.should_quit = true;
-                            } else {
-                                self.reset_document();
+                            match c {
+                                'q' => self.should_quit = true,
+                                'e' => {
+                                    if let Some(path) =
+                                        input.split_whitespace().collect::<Vec<&str>>().get(1)
+                                    {
+                                        let doc = Document::open(&path);
+                                        if let Ok(doc) = doc {
+                                            self.document = doc;
+                                            self.cursor_position = Position {
+                                                x: 0,
+                                                y: 0,
+                                                max_x: 0,
+                                            };
+                                            self.readjust_cursor();
+                                        } else {
+                                            self.status_message = StatusMessage::from(format!(
+                                                "ERR: Could not open file: {}",
+                                                path
+                                            ));
+                                        };
+                                        return;
+                                    } else {
+                                        self.status_message =
+                                            StatusMessage::from(format!("ERR: No path entered"));
+                                    }
+                                }
+                                _ => self.reset_document(),
                             }
                         }
                     }
@@ -470,6 +519,10 @@ impl Editor {
     // TODO: arrow keys select and highlight portions of document
     // from starting position, enter sets clipboard content to
     // selection and returns to normal mode
+    // Store start and end selection cursor position.
+    // If row.y == start.y, highlight all characters >= start.x
+    // else if row.y == end.y, highlight all characters <= end.x
+    // else highlight entire row
     fn visual_mode(&mut self, c: char) {
         return;
         todo!();
