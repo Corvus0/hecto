@@ -52,6 +52,7 @@ pub struct Editor {
     should_quit: bool,
     terminal: Terminal,
     cursor_position: Position,
+    selection_start: Position,
     offset: Position,
     document: Document,
     status_message: StatusMessage,
@@ -94,6 +95,7 @@ impl Editor {
             should_quit: false,
             terminal: Terminal::default().expect("Failed to initialize terminal"),
             cursor_position: Position::default(),
+            selection_start: Position::default(),
             offset: Position::default(),
             document,
             status_message: StatusMessage::from(initial_status),
@@ -262,8 +264,7 @@ impl Editor {
                     'c' => {
                         if let Some(path) = input.split_whitespace().collect::<Vec<&str>>().get(1) {
                             let dir = Path::new(path);
-                            if dir.exists() {
-                                env::set_current_dir(dir);
+                            if let Ok(_) = env::set_current_dir(dir) {
                                 self.show_cwd();
                             } else {
                                 self.status_message = StatusMessage::from(format!(
@@ -277,16 +278,15 @@ impl Editor {
                                 StatusMessage::from(format!("ERR: No path entered"));
                         }
                     }
-                    'q' | 'e' => {
-                        let mut force = input.contains("!");
+                    'q' | 'e' | 'u' => {
+                        let force = input.contains("!");
                         let dirty = self.document.is_dirty();
                         if dirty && !force {
                             self.status_message = StatusMessage::from(
                                 "WARNING! File has unsaved changes: add ! to override.".to_string(),
                             );
                             return;
-                        }
-                        if !dirty || force {
+                        } else {
                             match c {
                                 'q' => self.should_quit = true,
                                 'e' => {
@@ -314,7 +314,8 @@ impl Editor {
                                             StatusMessage::from(format!("ERR: No path entered"));
                                     }
                                 }
-                                _ => self.reset_document(),
+                                'u' => self.reset_document(),
+                                _ => (),
                             }
                         }
                     }
@@ -522,8 +523,13 @@ impl Editor {
     // else if row.y == end.y, highlight all characters <= end.x
     // else highlight entire row
     fn visual_mode(&mut self, c: char) {
-        return;
-        todo!();
+        self.selection_start = self.cursor_position.clone();
+        self.mode = Mode::Normal;
+        match c {
+            'h' | 'j' | 'k' | 'l' | 'y' => self.normal_mode(c),
+            _ => (),
+        }
+        self.mode = Mode::Visual;
     }
 
     fn process_keypress(&mut self) -> Result<(), std::io::Error> {
@@ -536,8 +542,8 @@ impl Editor {
                 Mode::Visual => self.visual_mode(c),
             },
             Key::Esc => {
-                if self.mode != Mode::Normal {
-                    self.mode = Mode::Normal;
+                self.mode = Mode::Normal;
+                if self.mode != Mode::Normal || self.mode != Mode::Visual {
                     self.move_cursor(Key::Left);
                 }
             }
