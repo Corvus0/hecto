@@ -5,7 +5,7 @@ use std::cmp;
 use termion::color;
 use unicode_segmentation::UnicodeSegmentation;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Row {
     string: String,
     highlighting: Vec<highlighting::Type>,

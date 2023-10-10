@@ -14,6 +14,17 @@ pub struct Document {
     file_type: FileType,
 }
 
+impl Clone for Document {
+    fn clone(&self) -> Self {
+        Self {
+            rows: self.rows.clone(),
+            file_name: self.file_name.clone(),
+            dirty: false,
+            file_type: self.file_type.clone(),
+        }
+    }
+}
+
 impl Document {
     pub fn open(filename: &str) -> Result<Self, std::io::Error> {
         let contents = fs::read_to_string(filename)?;

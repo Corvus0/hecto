@@ -1,9 +1,10 @@
+#[derive(Clone)]
 pub struct FileType {
     name: String,
     hl_opts: HighlightingOptions,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct HighlightingOptions {
     numbers: bool,
     strings: bool,

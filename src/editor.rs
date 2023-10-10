@@ -1,6 +1,7 @@
 use crate::Document;
 use crate::Row;
 use crate::Terminal;
+use chrono;
 use std::env;
 use std::path::Path;
 use std::time::Duration;
@@ -59,6 +60,8 @@ pub struct Editor {
     highlighted_word: Option<String>,
     clipboard: Option<String>,
     mode: Mode,
+    versions: Vec<Document>,
+    undo_index: usize,
 }
 
 impl Editor {
@@ -91,6 +94,8 @@ impl Editor {
             Document::default()
         };
 
+        let init_version = document.clone();
+
         Self {
             should_quit: false,
             terminal: Terminal::default().expect("Failed to initialize terminal"),
@@ -102,6 +107,8 @@ impl Editor {
             highlighted_word: None,
             clipboard: None,
             mode: Mode::Normal,
+            versions: vec![init_version],
+            undo_index: 0,
         }
     }
 
@@ -136,8 +143,48 @@ impl Editor {
         Terminal::flush()
     }
 
+    fn undo(&mut self) {
+        if self.undo_index == 0 {
+            self.status_message = StatusMessage::from("At earliest version.".to_string());
+            return;
+        }
+        self.undo_index = self.undo_index.saturating_sub(1);
+        self.document = self.versions[self.undo_index].clone();
+        self.readjust_cursor();
+        if let Err(error) = self.refresh_screen() {
+            die(&error)
+        }
+        self.status_message = StatusMessage::from("Undo.".to_string());
+    }
+
+    fn redo(&mut self) {
+        if self.undo_index == self.versions.len() - 1 {
+            self.status_message = StatusMessage::from("At latest version.".to_string());
+            return;
+        }
+        self.undo_index = self.undo_index.saturating_add(1);
+        self.document = self.versions[self.undo_index].clone();
+        self.readjust_cursor();
+        if let Err(error) = self.refresh_screen() {
+            die(&error);
+        }
+        self.status_message = StatusMessage::from("Redo.".to_string());
+    }
+
+    fn add_version(&mut self) {
+        if self.undo_index != self.versions.len() - 1 {
+            self.versions.drain((self.undo_index + 1)..);
+        }
+        self.versions.push(self.document.clone());
+        self.undo_index = self.versions.len() - 1;
+    }
+
+    fn contains_changes(&self) -> bool {
+        self.versions.len() != 1 && self.undo_index != 0
+    }
+
     fn save(&mut self) {
-        if !self.document.is_dirty() {
+        if !self.contains_changes() {
             self.status_message = StatusMessage::from("No changes to write.".to_string());
             return;
         }
@@ -198,22 +245,6 @@ impl Editor {
             self.scroll();
         }
         self.highlighted_word = None;
-    }
-
-    fn reset_document(&mut self) {
-        let mut status = "File reset to previous saved version.".to_string();
-        if let Some(file_name) = &self.document.file_name {
-            self.document = if let Ok(doc) = Document::open(&file_name) {
-                doc
-            } else {
-                status = format!("ERR: Could not open file: {}", file_name);
-                Document::default()
-            };
-            self.readjust_cursor();
-        } else {
-            status = "ERR: No previous saved version exists.".to_string();
-        }
-        self.status_message = StatusMessage::from(status);
     }
 
     fn show_cwd(&mut self) {
@@ -280,7 +311,7 @@ impl Editor {
                     }
                     'q' | 'e' | 'u' => {
                         let force = input.contains("!");
-                        let dirty = self.document.is_dirty();
+                        let dirty = self.contains_changes();
                         if dirty && !force {
                             self.status_message = StatusMessage::from(
                                 "WARNING! File has unsaved changes: add ! to override.".to_string(),
@@ -296,6 +327,8 @@ impl Editor {
                                         let doc = Document::open(&path);
                                         if let Ok(doc) = doc {
                                             self.document = doc;
+                                            self.versions.clear();
+                                            self.undo_index = 0;
                                             self.cursor_position = Position {
                                                 x: 0,
                                                 y: 0,
@@ -314,7 +347,7 @@ impl Editor {
                                             StatusMessage::from(format!("ERR: No path entered"));
                                     }
                                 }
-                                'u' => self.reset_document(),
+                                'u' => self.undo(),
                                 _ => (),
                             }
                         }
@@ -457,6 +490,7 @@ impl Editor {
             'v' => self.mode = Mode::Visual,
             '/' => self.search(),
             ':' => self.execute_command(),
+            'u' => self.undo(),
             _ => (),
         }
     }
@@ -542,10 +576,13 @@ impl Editor {
                 Mode::Visual => self.visual_mode(c),
             },
             Key::Esc => {
-                self.mode = Mode::Normal;
-                if self.mode != Mode::Normal || self.mode != Mode::Visual {
+                if self.mode == Mode::Insert && self.document.is_dirty() {
+                    self.add_version();
+                }
+                if self.mode != Mode::Normal {
                     self.move_cursor(Key::Left);
                 }
+                self.mode = Mode::Normal;
             }
             Key::Delete => {
                 self.document.delete(&self.cursor_position);
@@ -568,6 +605,11 @@ impl Editor {
             | Key::PageDown
             | Key::End
             | Key::Home => self.move_cursor(pressed_key),
+            Key::Ctrl('r') => {
+                if self.mode == Mode::Normal {
+                    self.redo()
+                }
+            }
             _ => (),
         }
         self.scroll();
@@ -578,7 +620,7 @@ impl Editor {
         let Position { x, y, max_x: _ } = self.cursor_position;
         let width = self.terminal.size().width as usize;
         let height = self.terminal.size().height as usize;
-        let mut offset = &mut self.offset;
+        let offset = &mut self.offset;
         let screen_x = x.saturating_sub(offset.x);
         let screen_y = y.saturating_sub(offset.y);
         let width_edge = width / 8;
@@ -761,7 +803,7 @@ impl Editor {
     fn draw_status_bar(&self) {
         let mut status;
         let width = self.terminal.size().width.saturating_add(5) as usize;
-        let modified_indicator = if self.document.is_dirty() {
+        let modified_indicator = if self.contains_changes() {
             " (modified)"
         } else {
             ""
@@ -802,7 +844,8 @@ impl Editor {
             ),
         };
         let line_indicator = format!(
-            "{} | {}:{} {}",
+            "{} {} | {}:{} {}",
+            chrono::offset::Local::now().format("%Y-%m-%d %H:%M:%S"),
             self.document.file_type(),
             self.cursor_position.y.saturating_add(1),
             self.cursor_position.x.saturating_add(1),
