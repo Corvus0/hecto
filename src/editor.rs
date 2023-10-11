@@ -40,6 +40,12 @@ struct StatusMessage {
     text: String,
 }
 
+#[derive(Default, Clone)]
+struct Version {
+    document: Document,
+    position: Position,
+}
+
 impl StatusMessage {
     fn from(message: String) -> Self {
         Self {
@@ -60,8 +66,9 @@ pub struct Editor {
     highlighted_word: Option<String>,
     clipboard: Option<String>,
     mode: Mode,
-    versions: Vec<Document>,
+    versions: Vec<Version>,
     undo_index: usize,
+    has_saved: bool,
 }
 
 impl Editor {
@@ -94,7 +101,10 @@ impl Editor {
             Document::default()
         };
 
-        let init_version = document.clone();
+        let init_version = Version {
+            document: document.clone(),
+            position: Position::default(),
+        };
 
         Self {
             should_quit: false,
@@ -109,6 +119,7 @@ impl Editor {
             mode: Mode::Normal,
             versions: vec![init_version],
             undo_index: 0,
+            has_saved: false,
         }
     }
 
@@ -149,8 +160,9 @@ impl Editor {
             return;
         }
         self.undo_index = self.undo_index.saturating_sub(1);
-        self.document = self.versions[self.undo_index].clone();
-        self.readjust_cursor();
+        let version = &self.versions[self.undo_index];
+        self.document = version.document.clone();
+        self.cursor_position = version.position.clone();
         if let Err(error) = self.refresh_screen() {
             die(&error)
         }
@@ -163,24 +175,32 @@ impl Editor {
             return;
         }
         self.undo_index = self.undo_index.saturating_add(1);
-        self.document = self.versions[self.undo_index].clone();
-        self.readjust_cursor();
+        let version = &self.versions[self.undo_index];
+        self.document = version.document.clone();
+        self.cursor_position = version.position.clone();
         if let Err(error) = self.refresh_screen() {
             die(&error);
         }
         self.status_message = StatusMessage::from("Redo.".to_string());
     }
 
+    // TODO: Needs a better way of keeping track of where edits are made outside of insert mode
     fn add_version(&mut self) {
         if self.undo_index != self.versions.len() - 1 {
             self.versions.drain((self.undo_index + 1)..);
         }
-        self.versions.push(self.document.clone());
+        let version = Version {
+            document: self.document.clone(),
+            position: self.cursor_position.clone(),
+        };
+        self.document = version.document.clone();
+        self.versions.push(version);
         self.undo_index = self.versions.len() - 1;
+        self.has_saved = false;
     }
 
     fn contains_changes(&self) -> bool {
-        self.versions.len() != 1 && self.undo_index != 0
+        self.versions.len() != 1 && self.undo_index != 0 && !self.has_saved
     }
 
     fn save(&mut self) {
@@ -204,6 +224,7 @@ impl Editor {
                 "File saved successfully: {} bytes written.",
                 bytes_written
             ));
+            self.has_saved = true;
         } else {
             self.status_message = StatusMessage::from("Error writing file!".to_string());
         }
@@ -413,7 +434,7 @@ impl Editor {
                 self.cursor_position.max_x = 0;
             }
             'a' | 'A' | 'i' | 'I' => {
-                self.mode = Mode::Insert;
+                self.switch_mode(Mode::Insert);
                 if c == 'a' {
                     self.move_cursor(Key::Right);
                 } else if c == 'A' {
@@ -423,7 +444,7 @@ impl Editor {
                 }
             }
             'o' | 'O' => {
-                self.mode = Mode::Insert;
+                self.switch_mode(Mode::Insert);
                 if c == 'o' {
                     self.move_cursor(Key::End);
                 } else {
@@ -486,12 +507,15 @@ impl Editor {
                     }
                 }
             }
-            'R' => self.mode = Mode::Replace,
-            'v' => self.mode = Mode::Visual,
+            'R' => self.switch_mode(Mode::Replace),
+            'v' => self.switch_mode(Mode::Visual),
             '/' => self.search(),
             ':' => self.execute_command(),
             'u' => self.undo(),
             _ => (),
+        }
+        if self.document.is_dirty() {
+            self.add_version();
         }
     }
 
@@ -558,12 +582,28 @@ impl Editor {
     // else highlight entire row
     fn visual_mode(&mut self, c: char) {
         self.selection_start = self.cursor_position.clone();
-        self.mode = Mode::Normal;
+        self.switch_mode(Mode::Normal);
         match c {
             'h' | 'j' | 'k' | 'l' | 'y' => self.normal_mode(c),
             _ => (),
         }
-        self.mode = Mode::Visual;
+        self.switch_mode(Mode::Visual);
+    }
+
+    fn switch_mode(&mut self, mode: Mode) {
+        use Mode::*;
+        match mode {
+            Normal => {
+                if self.mode != Mode::Normal {
+                    if self.document.is_dirty() {
+                        self.add_version();
+                    }
+                    self.move_cursor(Key::Left);
+                }
+            }
+            _ => (),
+        }
+        self.mode = mode;
     }
 
     fn process_keypress(&mut self) -> Result<(), std::io::Error> {
@@ -575,15 +615,7 @@ impl Editor {
                 Mode::Replace => self.replace_mode(c),
                 Mode::Visual => self.visual_mode(c),
             },
-            Key::Esc => {
-                if self.mode == Mode::Insert && self.document.is_dirty() {
-                    self.add_version();
-                }
-                if self.mode != Mode::Normal {
-                    self.move_cursor(Key::Left);
-                }
-                self.mode = Mode::Normal;
-            }
+            Key::Esc => self.switch_mode(Mode::Normal),
             Key::Delete => {
                 self.document.delete(&self.cursor_position);
             }

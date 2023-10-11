@@ -65,6 +65,7 @@ impl Document {
             self.rows.push(Row::default());
             return;
         }
+        self.dirty = true;
         #[allow(clippy::indexing_slicing)]
         let current_row = &mut self.rows[at.y];
         let new_row = current_row.split(at.x);
