@@ -347,8 +347,13 @@ impl Editor {
                                     {
                                         let doc = Document::open(&path);
                                         if let Ok(doc) = doc {
-                                            self.document = doc;
+                                            let version = Version {
+                                                document: doc.clone(),
+                                                position: Position::default(),
+                                            };
+                                            self.document = doc.clone();
                                             self.versions.clear();
+                                            self.versions.push(version);
                                             self.undo_index = 0;
                                             self.cursor_position = Position {
                                                 x: 0,
@@ -584,7 +589,7 @@ impl Editor {
         self.selection_start = self.cursor_position.clone();
         self.switch_mode(Mode::Normal);
         match c {
-            'h' | 'j' | 'k' | 'l' | 'y' => self.normal_mode(c),
+            'h' | 'j' | 'k' | 'l' | 'c' | 'd' | 'y' => self.normal_mode(c),
             _ => (),
         }
         self.switch_mode(Mode::Visual);
