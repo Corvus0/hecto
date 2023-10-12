@@ -6,6 +6,8 @@ use chrono::DateTime;
 use chrono::Local;
 use std::env;
 use std::path::Path;
+use std::thread;
+use std::time;
 use std::time::Duration;
 use std::time::Instant;
 use termion::color;
@@ -102,16 +104,33 @@ pub struct Editor {
 
 impl Editor {
     pub fn run(&mut self) {
+        let mut should_refresh = false;
         loop {
-            // TODO: Async causes too many refreshes, leading to cursor flashing
-            if let Err(error) = self.refresh_screen() {
-                die(&error);
+            if self.should_quit || should_refresh {
+                if let Err(error) = self.refresh_screen() {
+                    die(&error);
+                }
+                should_refresh = false;
             }
             if self.should_quit {
                 break;
             }
-            if let Err(error) = self.process_keypress() {
-                die(&error);
+            match self.terminal.read_key() {
+                Some(pressed_key) => {
+                    if let Ok(key) = pressed_key {
+                        if let Err(error) = self.process_keypress(key) {
+                            die(&error);
+                        }
+                        should_refresh = true;
+                    } else if let Err(error) = pressed_key {
+                        die(&error);
+                    }
+                }
+                None => (),
+            }
+            if !should_refresh {
+                thread::sleep(time::Duration::from_millis(1000 / 120));
+                should_refresh = true;
             }
         }
     }
@@ -373,7 +392,7 @@ impl Editor {
                 self.scroll();
                 found = true;
             }
-            if !found {
+            if !found && direction == SearchDirection::Forward {
                 self.move_cursor(Key::Left);
             }
         }
@@ -489,6 +508,7 @@ impl Editor {
                 Some(pressed_key) => return pressed_key,
                 None => (),
             }
+            thread::sleep(time::Duration::from_millis(1000 / 120));
         }
     }
 
@@ -807,14 +827,7 @@ impl Editor {
         self.mode = mode;
     }
 
-    fn process_keypress(&mut self) -> Result<(), std::io::Error> {
-        let key_async = self.terminal.read_key();
-        let pressed_key;
-        if let Some(key) = key_async {
-            pressed_key = key?;
-        } else {
-            return Ok(());
-        }
+    fn process_keypress(&mut self, pressed_key: Key) -> Result<(), std::io::Error> {
         match pressed_key {
             Key::Char(c) => match self.mode {
                 Mode::Insert => self.insert_mode(c),
