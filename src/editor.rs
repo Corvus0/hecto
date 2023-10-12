@@ -182,6 +182,7 @@ impl Editor {
     }
 
     fn refresh_screen(&mut self) -> Result<(), std::io::Error> {
+        self.terminal.update_size()?;
         Terminal::cursor_hide();
         Terminal::cursor_position(&Position::default(), false);
         if self.should_quit {

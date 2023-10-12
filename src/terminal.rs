@@ -32,6 +32,15 @@ impl Terminal {
         &self.size
     }
 
+    pub fn update_size(&mut self) -> Result<(), std::io::Error> {
+        let size = termion::terminal_size()?;
+            self.size = Size {
+                width: size.0.saturating_sub(5),
+                height: size.1.saturating_sub(2),
+            };
+        Ok(())
+    }
+
     pub fn clear_screen() {
         print!("{}", termion::clear::All);
     }
