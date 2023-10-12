@@ -192,24 +192,11 @@ impl Editor {
     fn version_status_message(
         &self,
         old_len: usize,
+        old_changes: usize,
         index: usize,
         timestamp: &DateTime<Local>,
         redo: bool,
     ) -> String {
-        let mut lines_changed = self.document.len() as i64 - old_len as i64;
-        let magnitude = if lines_changed > 0 || redo {
-            "more"
-        } else {
-            "fewer"
-        };
-        let change_type = if lines_changed != 0 {
-            "lines"
-        } else {
-            "change"
-        };
-        if lines_changed == 0 {
-            lines_changed += 1;
-        }
         let current_time = chrono::offset::Local::now();
         let diff = current_time - timestamp;
         let time = if diff.num_seconds() < 60 {
@@ -229,14 +216,31 @@ impl Editor {
         } else {
             timestamp.format("%H:%M:%S").to_string()
         };
-        format!(
-            "{} {} {}; before #{}  {}",
-            lines_changed.abs(),
-            magnitude,
-            change_type,
-            index,
-            time
-        )
+        let lines_added = self.document.len() as i64 - old_len as i64;
+        let add_type = if lines_added.abs() == 1 {
+            "line"
+        } else {
+            "lines"
+        };
+        let change_msg = if lines_added == -1 {
+            format!("{} {} less", lines_added.abs(), add_type)
+        } else if lines_added != 0 {
+            let magnitude = if lines_added > 0 || redo {
+                "more"
+            } else {
+                "fewer"
+            };
+            format!("{} {} {}", lines_added.abs(), magnitude, add_type)
+        } else {
+            let lines_changed = (self.document.lines_changed() as i64 - old_changes as i64).abs();
+            let change_type = if lines_changed == 1 {
+                "change"
+            } else {
+                "changes"
+            };
+            format!("{} {}", lines_changed.abs(), change_type)
+        };
+        format!("{}; before #{}  {}", change_msg, index, time)
     }
 
     fn undo(&mut self) {
@@ -244,13 +248,16 @@ impl Editor {
             self.status_message = StatusMessage::from("Already at oldest change".to_string());
             return;
         }
-        let prev_len = self.versions[self.version_index].document.len();
+        let prev_doc = &self.versions[self.version_index].document;
+        let prev_len = prev_doc.len();
+        let prev_changes = prev_doc.lines_changed();
         self.version_index = self.version_index.saturating_sub(1);
         let version = &self.versions[self.version_index];
         self.document = version.document.clone();
         self.cursor_position = version.position;
         let msg = self.version_status_message(
             prev_len,
+            prev_changes,
             self.version_index.saturating_add(1),
             &version.timestamp,
             false,
@@ -273,11 +280,18 @@ impl Editor {
             timestamp,
         } = &self.versions[self.version_index];
         let prev_len = prev_doc.len();
+        let prev_changes = prev_doc.lines_changed();
         self.version_index = self.version_index.saturating_add(1);
         let version = &self.versions[self.version_index];
         self.document = version.document.clone();
         self.cursor_position = *position;
-        let msg = self.version_status_message(prev_len, self.version_index, &timestamp, true);
+        let msg = self.version_status_message(
+            prev_len,
+            prev_changes,
+            self.version_index,
+            &timestamp,
+            true,
+        );
         self.status_message = StatusMessage::from(msg);
         self.readjust_cursor();
         if let Err(error) = self.refresh_screen() {

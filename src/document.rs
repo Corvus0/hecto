@@ -57,6 +57,14 @@ impl Document {
         self.rows.len()
     }
 
+    pub fn lines_changed(&self) -> usize {
+        self.rows
+            .iter()
+            .map(|r| if r.is_dirty() { 1usize } else { 0usize })
+            .reduce(|acc, r| acc + r)
+            .unwrap_or(0)
+    }
+
     fn insert_newline(&mut self, at: &Position) {
         if at.y > self.rows.len() {
             return;
