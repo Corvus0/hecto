@@ -361,6 +361,7 @@ impl Editor {
 
     fn move_to_search_term(&mut self, direction: SearchDirection) {
         if let Some(query) = &self.query.clone() {
+            let mut found = false;
             if direction == SearchDirection::Forward {
                 self.move_cursor(Key::Right);
             }
@@ -370,6 +371,10 @@ impl Editor {
             {
                 self.cursor_position = position.into();
                 self.scroll();
+                found = true;
+            }
+            if !found {
+                self.move_cursor(Key::Left);
             }
         }
     }

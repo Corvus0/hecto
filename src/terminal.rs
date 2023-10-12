@@ -55,10 +55,7 @@ impl Terminal {
     }
 
     pub fn read_key(&mut self) -> Option<Result<Key, std::io::Error>> {
-        if let Some(key) = self._stdin.next() {
-            return Some(key);
-        }
-        None
+        self._stdin.next()
     }
 
     pub fn cursor_hide() {
