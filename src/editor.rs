@@ -2,6 +2,8 @@ use crate::Document;
 use crate::Row;
 use crate::Terminal;
 use chrono;
+use chrono::DateTime;
+use chrono::Local;
 use std::env;
 use std::path::Path;
 use std::time::Duration;
@@ -28,11 +30,36 @@ enum Mode {
     Visual,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Copy, Clone)]
+struct CursorPosition {
+    x: usize,
+    y: usize,
+    max_x: usize,
+}
+
+#[derive(Default, Copy, Clone)]
 pub struct Position {
     pub x: usize,
     pub y: usize,
-    pub max_x: usize,
+}
+
+impl From<Position> for CursorPosition {
+    fn from(item: Position) -> Self {
+        Self {
+            x: item.x,
+            y: item.y,
+            max_x: 0,
+        }
+    }
+}
+
+impl Into<Position> for CursorPosition {
+    fn into(self) -> Position {
+        Position {
+            x: self.x,
+            y: self.y,
+        }
+    }
 }
 
 struct StatusMessage {
@@ -43,7 +70,8 @@ struct StatusMessage {
 #[derive(Default, Clone)]
 struct Version {
     document: Document,
-    position: Position,
+    position: CursorPosition,
+    timestamp: DateTime<Local>,
 }
 
 impl StatusMessage {
@@ -58,7 +86,7 @@ impl StatusMessage {
 pub struct Editor {
     should_quit: bool,
     terminal: Terminal,
-    cursor_position: Position,
+    cursor_position: CursorPosition,
     selection_start: Position,
     offset: Position,
     document: Document,
@@ -67,7 +95,7 @@ pub struct Editor {
     clipboard: Option<String>,
     mode: Mode,
     versions: Vec<Version>,
-    undo_index: usize,
+    version_index: usize,
     has_saved: bool,
 }
 
@@ -89,27 +117,21 @@ impl Editor {
     pub fn default() -> Self {
         let args: Vec<String> = env::args().collect();
         let mut initial_status = String::from(": for commands");
-        let document = if let Some(file_name) = args.get(1) {
-            let doc = Document::open(&file_name);
-            if let Ok(doc) = doc {
-                doc
+        let (document, versions) = if let Some(file_name) = args.get(1) {
+            if let Some((doc, versions)) = Self::open_document(&file_name) {
+                (doc, versions)
             } else {
                 initial_status = format!("ERR: Could not open file: {}", file_name);
-                Document::default()
+                (Document::default(), vec![Version::default()])
             }
         } else {
-            Document::default()
-        };
-
-        let init_version = Version {
-            document: document.clone(),
-            position: Position::default(),
+            (Document::default(), vec![Version::default()])
         };
 
         Self {
             should_quit: false,
             terminal: Terminal::default().expect("Failed to initialize terminal"),
-            cursor_position: Position::default(),
+            cursor_position: CursorPosition::default(),
             selection_start: Position::default(),
             offset: Position::default(),
             document,
@@ -117,9 +139,23 @@ impl Editor {
             highlighted_word: None,
             clipboard: None,
             mode: Mode::Normal,
-            versions: vec![init_version],
-            undo_index: 0,
+            versions,
+            version_index: 0,
             has_saved: false,
+        }
+    }
+
+    fn open_document(file_name: &str) -> Option<(Document, Vec<Version>)> {
+        let doc = Document::open(&file_name);
+        if let Ok(doc) = doc {
+            let version = Version {
+                document: doc.clone(),
+                position: CursorPosition::default(),
+                timestamp: chrono::offset::Local::now(),
+            };
+            Some((doc, vec![version]))
+        } else {
+            None
         }
     }
 
@@ -145,7 +181,6 @@ impl Editor {
                 &Position {
                     x: self.cursor_position.x.saturating_sub(self.offset.x),
                     y: self.cursor_position.y.saturating_sub(self.offset.y),
-                    max_x: self.cursor_position.max_x,
                 },
                 !self.document.row(self.cursor_position.y).is_none(),
             );
@@ -154,53 +189,115 @@ impl Editor {
         Terminal::flush()
     }
 
+    fn version_status_message(
+        &self,
+        old_len: usize,
+        index: usize,
+        timestamp: &DateTime<Local>,
+    ) -> String {
+        let lines_changed = self.document.len() as i64 - old_len as i64;
+        let magnitude = if lines_changed > 0 { "more" } else { "fewer" };
+        let current_time = chrono::offset::Local::now();
+        let diff = current_time - timestamp;
+        let time = if diff.num_seconds() < 60 {
+            let duration = if diff.num_seconds() == 1 {
+                "second"
+            } else {
+                "seconds"
+            };
+            format!("{} {} ago", diff.num_seconds(), duration)
+        } else if diff.num_minutes() < 10 {
+            let duration = if diff.num_minutes() == 1 {
+                "minute"
+            } else {
+                "minutes"
+            };
+            format!("{} {} ago", diff.num_minutes(), duration)
+        } else {
+            timestamp.format("%H:%M:%S").to_string()
+        };
+        format!(
+            "{} {} lines; before #{}  {}",
+            lines_changed.abs(),
+            magnitude,
+            index,
+            time
+        )
+    }
+
     fn undo(&mut self) {
-        if self.undo_index == 0 {
-            self.status_message = StatusMessage::from("At earliest version.".to_string());
+        if self.version_index == 0 {
+            self.status_message = StatusMessage::from("Already at oldest change".to_string());
             return;
         }
-        self.undo_index = self.undo_index.saturating_sub(1);
-        let version = &self.versions[self.undo_index];
+        let prev_len = self.versions[self.version_index].document.len();
+        self.version_index = self.version_index.saturating_sub(1);
+        let version = &self.versions[self.version_index];
         self.document = version.document.clone();
-        self.cursor_position = version.position.clone();
+        self.cursor_position = version.position;
+        let msg = self.version_status_message(
+            prev_len,
+            self.version_index.saturating_add(1),
+            &version.timestamp,
+        );
+        self.status_message = StatusMessage::from(msg);
+        self.readjust_cursor();
         if let Err(error) = self.refresh_screen() {
             die(&error)
         }
-        self.status_message = StatusMessage::from("Undo.".to_string());
     }
 
     fn redo(&mut self) {
-        if self.undo_index == self.versions.len() - 1 {
-            self.status_message = StatusMessage::from("At latest version.".to_string());
+        if self.version_index == self.versions.len() - 1 {
+            self.status_message = StatusMessage::from("Already at newest change".to_string());
             return;
         }
-        self.undo_index = self.undo_index.saturating_add(1);
-        let version = &self.versions[self.undo_index];
+        let Version {
+            document: prev_doc,
+            position,
+            timestamp,
+        } = &self.versions[self.version_index];
+        let prev_len = prev_doc.len();
+        self.version_index = self.version_index.saturating_add(1);
+        let version = &self.versions[self.version_index];
         self.document = version.document.clone();
-        self.cursor_position = version.position.clone();
+        self.cursor_position = *position;
+        let msg = self.version_status_message(prev_len, self.version_index, &timestamp);
+        self.status_message = StatusMessage::from(msg);
+        self.readjust_cursor();
         if let Err(error) = self.refresh_screen() {
             die(&error);
         }
-        self.status_message = StatusMessage::from("Redo.".to_string());
     }
 
-    // TODO: Needs a better way of keeping track of where edits are made outside of insert mode
     fn add_version(&mut self) {
-        if self.undo_index != self.versions.len() - 1 {
-            self.versions.drain((self.undo_index + 1)..);
+        if self.version_index != self.versions.len() - 1 {
+            self.versions.drain((self.version_index + 1)..);
         }
+        let Version {
+            document: _,
+            position,
+            timestamp,
+        } = self.versions[self.version_index];
         let version = Version {
             document: self.document.clone(),
-            position: self.cursor_position.clone(),
+            position,
+            timestamp,
         };
-        self.document = version.document.clone();
+        self.document = self.document.clone();
         self.versions.push(version);
-        self.undo_index = self.versions.len() - 1;
+        self.version_index = self.versions.len() - 1;
         self.has_saved = false;
     }
 
     fn contains_changes(&self) -> bool {
-        self.versions.len() != 1 && self.undo_index != 0 && !self.has_saved
+        self.versions.len() != 1 && self.version_index != 0 && !self.has_saved
+    }
+
+    fn save_prev_cursor_position(&mut self) {
+        let prev_version = &mut self.versions[self.version_index];
+        prev_version.position = self.cursor_position;
+        prev_version.timestamp = chrono::offset::Local::now();
     }
 
     fn save(&mut self) {
@@ -231,7 +328,7 @@ impl Editor {
     }
 
     fn search(&mut self) {
-        let old_position = self.cursor_position.clone();
+        let old_position = self.cursor_position;
         let mut direction = SearchDirection::Forward;
         let query = self
             .prompt(
@@ -250,9 +347,9 @@ impl Editor {
                     if let Some(position) =
                         editor
                             .document
-                            .find(query, &editor.cursor_position, direction)
+                            .find(query, &editor.cursor_position.into(), direction)
                     {
-                        editor.cursor_position = position;
+                        editor.cursor_position = position.into();
                         editor.scroll();
                     } else if moved {
                         editor.move_cursor(Key::Left);
@@ -276,6 +373,70 @@ impl Editor {
         }
     }
 
+    // TODO: DRY
+    fn doc_insert(&mut self, c: char) {
+        if self.mode != Mode::Insert {
+            self.save_prev_cursor_position();
+        }
+        self.document.insert(&self.cursor_position.into(), c);
+        if self.mode != Mode::Insert {
+            self.add_version();
+        }
+    }
+
+    fn doc_insert_line(&mut self, line: &str) {
+        if self.mode != Mode::Insert {
+            self.save_prev_cursor_position();
+        }
+        self.document.insert_line(self.cursor_position.y, line);
+        if self.mode != Mode::Insert {
+            self.add_version();
+        }
+    }
+
+    fn doc_paste_clipboard(&mut self) {
+        if let Some(content) = &self.clipboard.clone() {
+            if self.mode != Mode::Insert {
+                self.save_prev_cursor_position();
+            }
+            self.document.insert_line(self.cursor_position.y, &content);
+            if self.mode != Mode::Insert {
+                self.add_version();
+            }
+        }
+    }
+
+    fn doc_delete(&mut self) -> usize {
+        if self.mode != Mode::Insert {
+            self.save_prev_cursor_position();
+        }
+        let deleted = self.document.delete(&self.cursor_position.into());
+        if self.mode != Mode::Insert {
+            self.add_version();
+        }
+        deleted
+    }
+
+    fn doc_delete_line(&mut self) {
+        if self.mode != Mode::Insert {
+            self.save_prev_cursor_position();
+        }
+        self.document.delete_line(self.cursor_position.y);
+        if self.mode != Mode::Insert {
+            self.add_version();
+        }
+    }
+
+    fn doc_replace(&mut self, c: char) {
+        if self.mode != Mode::Insert {
+            self.save_prev_cursor_position();
+        }
+        self.document.replace(&self.cursor_position.into(), c);
+        if self.mode != Mode::Insert {
+            self.add_version();
+        }
+    }
+
     // TODO: Improve command parsing
     // Split inputs by whitespace first and process entire words as commands
     // if no match and only one word then split commands by characters
@@ -292,7 +453,7 @@ impl Editor {
                 if y < 0 {
                     y = 0;
                 }
-                self.cursor_position = Position {
+                self.cursor_position = CursorPosition {
                     x: 0,
                     y: y as usize,
                     max_x: 0,
@@ -302,7 +463,7 @@ impl Editor {
                 self.status_message = StatusMessage::from(format!("Invalid offset: {}", input));
             }
         } else if let Ok(line_num) = input.parse::<usize>() {
-            self.cursor_position = Position {
+            self.cursor_position = CursorPosition {
                 x: 0,
                 y: line_num.saturating_sub(1),
                 max_x: 0,
@@ -345,21 +506,11 @@ impl Editor {
                                     if let Some(path) =
                                         input.split_whitespace().collect::<Vec<&str>>().get(1)
                                     {
-                                        let doc = Document::open(&path);
-                                        if let Ok(doc) = doc {
-                                            let version = Version {
-                                                document: doc.clone(),
-                                                position: Position::default(),
-                                            };
-                                            self.document = doc.clone();
-                                            self.versions.clear();
-                                            self.versions.push(version);
-                                            self.undo_index = 0;
-                                            self.cursor_position = Position {
-                                                x: 0,
-                                                y: 0,
-                                                max_x: 0,
-                                            };
+                                        if let Some((doc, versions)) = Self::open_document(&path) {
+                                            self.document = doc;
+                                            self.versions = versions;
+                                            self.version_index = 0;
+                                            self.cursor_position = CursorPosition::default();
                                             self.readjust_cursor();
                                         } else {
                                             self.status_message = StatusMessage::from(format!(
@@ -451,39 +602,36 @@ impl Editor {
             'o' | 'O' => {
                 self.switch_mode(Mode::Insert);
                 if c == 'o' {
-                    self.move_cursor(Key::End);
-                } else {
-                    self.move_cursor(Key::Home);
-                    self.move_cursor(Key::Left);
+                    self.move_cursor(Key::Down);
                 }
-                self.document.insert(&self.cursor_position, '\n');
-                self.move_cursor(Key::Down);
+                self.doc_insert_line("");
+                if c == 'O' {
+                    self.move_cursor(Key::Down);
+                }
             }
-            'r' | 's' => {
+            'r' => {
                 let pressed_key = Terminal::read_key();
                 if let Ok(key) = pressed_key {
                     match key {
                         Key::Char(key) => {
-                            self.document.delete(&self.cursor_position);
-                            self.document.insert(&self.cursor_position, key);
+                            self.doc_replace(key);
                         }
                         _ => return,
-                    }
-                    if c == 's' {
-                        self.move_cursor(Key::Right);
                     }
                 } else if let Err(error) = pressed_key {
                     die(&error);
                 }
             }
-            'x' => {
+            'x' | 's' => {
                 if let Some(row) = self.document.row(self.cursor_position.y) {
                     let row_len = row.len();
                     if row_len > 0 {
-                        self.document.delete(&self.cursor_position);
+                        self.doc_delete();
                     }
-                    if self.cursor_position.x == row_len.saturating_sub(1) {
+                    if c == 'x' && self.cursor_position.x == row_len.saturating_sub(1) {
                         self.move_cursor(Key::Left);
+                    } else if c == 's' {
+                        self.switch_mode(Mode::Insert);
                     }
                 }
             }
@@ -491,25 +639,15 @@ impl Editor {
                 if let Some(row) = self.document.row(self.cursor_position.y) {
                     self.clipboard = Some(row.contents().trim().to_string());
                     if c == 'd' {
-                        let row_len = row.len();
+                        self.doc_delete_line();
                         self.move_cursor(Key::Home);
-                        for _ in 0..=row_len {
-                            self.document.delete(&self.cursor_position);
-                        }
                     }
                 }
             }
             'p' => {
                 if self.clipboard.is_some() {
-                    self.move_cursor(Key::End);
-                    self.document.insert(&self.cursor_position, '\n');
+                    self.doc_paste_clipboard();
                     self.move_cursor(Key::Down);
-                    self.move_cursor(Key::End);
-                    if let Some(contents) = &self.clipboard {
-                        for c in contents.chars().rev() {
-                            self.document.insert(&self.cursor_position, c);
-                        }
-                    }
                 }
             }
             'R' => self.switch_mode(Mode::Replace),
@@ -519,7 +657,7 @@ impl Editor {
             'u' => self.undo(),
             _ => (),
         }
-        if self.document.is_dirty() {
+        if self.mode != Mode::Insert && self.document.is_dirty() {
             self.add_version();
         }
     }
@@ -529,12 +667,12 @@ impl Editor {
             '\t' => {
                 let spaces = 4 - self.cursor_position.x % 4;
                 for _ in 0..spaces {
-                    self.document.insert(&self.cursor_position, ' ');
+                    self.doc_insert(' ');
                     self.move_cursor(Key::Right);
                 }
             }
             '\n' => {
-                self.document.insert(&self.cursor_position, c);
+                self.doc_insert(c);
                 self.move_cursor(Key::Right);
                 let mut spaces = 0;
                 if let Some(row) = self.document.row(self.cursor_position.y) {
@@ -545,7 +683,7 @@ impl Editor {
                 }
             }
             '(' | '[' | '{' | '\'' | '"' => {
-                self.document.insert(&self.cursor_position, c);
+                self.doc_insert(c);
                 self.move_cursor(Key::Right);
                 let closing = if c == '(' {
                     ')'
@@ -558,24 +696,18 @@ impl Editor {
                 } else {
                     return;
                 };
-                self.document.insert(&self.cursor_position, closing);
+                self.doc_insert(closing);
             }
             _ => {
-                self.document.insert(&self.cursor_position, c);
+                self.doc_insert(c);
                 self.move_cursor(Key::Right);
             }
         }
     }
 
     fn replace_mode(&mut self, c: char) {
-        match c {
-            '\t' | '\n' => self.insert_mode(c),
-            _ => {
-                self.document.delete(&self.cursor_position);
-                self.document.insert(&self.cursor_position, c);
-                self.move_cursor(Key::Right);
-            }
-        }
+        self.doc_replace(c);
+        self.move_cursor(Key::Right);
     }
 
     // TODO: arrow keys select and highlight portions of document
@@ -586,7 +718,7 @@ impl Editor {
     // else if row.y == end.y, highlight all characters <= end.x
     // else highlight entire row
     fn visual_mode(&mut self, c: char) {
-        self.selection_start = self.cursor_position.clone();
+        self.selection_start = self.cursor_position.into();
         self.switch_mode(Mode::Normal);
         match c {
             'h' | 'j' | 'k' | 'l' | 'c' | 'd' | 'y' => self.normal_mode(c),
@@ -599,12 +731,19 @@ impl Editor {
         use Mode::*;
         match mode {
             Normal => {
-                if self.mode != Mode::Normal {
-                    if self.document.is_dirty() {
-                        self.add_version();
-                    }
+                let prev_mode = self.mode;
+                if prev_mode != Mode::Normal {
+                    self.mode = mode;
                     self.move_cursor(Key::Left);
                 }
+                if prev_mode == Mode::Insert && self.document.is_dirty() {
+                    self.add_version();
+                }
+            }
+            Insert => {
+                let prev_version = &mut self.versions[self.version_index];
+                prev_version.position = self.cursor_position;
+                prev_version.timestamp = chrono::offset::Local::now();
             }
             _ => (),
         }
@@ -622,13 +761,13 @@ impl Editor {
             },
             Key::Esc => self.switch_mode(Mode::Normal),
             Key::Delete => {
-                self.document.delete(&self.cursor_position);
+                self.doc_delete();
             }
             Key::Backspace => {
                 if self.cursor_position.x > 0 || self.cursor_position.y > 0 {
                     self.move_cursor(Key::Left);
                     if self.mode == Mode::Insert {
-                        let deleted = self.document.delete(&self.cursor_position);
+                        let deleted = self.doc_delete();
                         self.cursor_position.x = self.cursor_position.x.saturating_sub(deleted);
                         self.cursor_position.max_x = self.cursor_position.x;
                     }
@@ -654,7 +793,7 @@ impl Editor {
     }
 
     fn scroll(&mut self) {
-        let Position { x, y, max_x: _ } = self.cursor_position;
+        let CursorPosition { x, y, max_x: _ } = self.cursor_position;
         let width = self.terminal.size().width as usize;
         let height = self.terminal.size().height as usize;
         let offset = &mut self.offset;
@@ -683,7 +822,7 @@ impl Editor {
     }
 
     fn readjust_cursor(&mut self) {
-        let Position {
+        let CursorPosition {
             mut x,
             mut y,
             max_x: _,
@@ -702,12 +841,12 @@ impl Editor {
         } else {
             0
         };
-        self.cursor_position = Position { x, y, max_x: x };
+        self.cursor_position = CursorPosition { x, y, max_x: x };
     }
 
     fn move_cursor(&mut self, key: Key) {
         let terminal_height = self.terminal.size().height as usize;
-        let Position {
+        let CursorPosition {
             mut x,
             mut y,
             mut max_x,
@@ -787,7 +926,7 @@ impl Editor {
             x = width;
         }
 
-        self.cursor_position = Position { x, y, max_x }
+        self.cursor_position = CursorPosition { x, y, max_x }
     }
 
     fn draw_welcome_message(&self) {

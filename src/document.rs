@@ -92,6 +92,20 @@ impl Document {
         self.unhighlight_rows(at.y);
     }
 
+    pub fn insert_line(&mut self, y: usize, line: &str) {
+        if y > self.rows.len() {
+            return;
+        }
+        self.dirty = true;
+        self.rows.splice(y..y, vec![line.into()]);
+        self.unhighlight_rows(y);
+    }
+
+    pub fn replace(&mut self, at: &Position, c: char) {
+        self.delete(at);
+        self.insert(at, c);
+    }
+
     fn unhighlight_rows(&mut self, start: usize) {
         let start = start.saturating_sub(1);
         for row in self.rows.iter_mut().skip(start) {
@@ -117,6 +131,15 @@ impl Document {
         }
         self.unhighlight_rows(at.y);
         deleted
+    }
+
+    pub fn delete_line(&mut self, y: usize) {
+        if y > self.rows.len() {
+            return;
+        }
+        self.dirty = true;
+        self.rows.splice(y..=y, vec![]);
+        self.unhighlight_rows(y);
     }
 
     pub fn save(&mut self) -> Result<usize, Error> {
@@ -157,11 +180,7 @@ impl Document {
         if at.y >= self.rows.len() {
             return None;
         }
-        let mut position = Position {
-            x: at.x,
-            y: at.y,
-            max_x: at.max_x,
-        };
+        let mut position = Position { x: at.x, y: at.y };
 
         let start = if direction == SearchDirection::Forward {
             at.y
