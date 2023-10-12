@@ -97,11 +97,13 @@ pub struct Editor {
     versions: Vec<Version>,
     version_index: usize,
     has_saved: bool,
+    query: Option<String>,
 }
 
 impl Editor {
     pub fn run(&mut self) {
         loop {
+            // TODO: Async causes too many refreshes, leading to cursor flashing
             if let Err(error) = self.refresh_screen() {
                 die(&error);
             }
@@ -142,6 +144,7 @@ impl Editor {
             versions,
             version_index: 0,
             has_saved: false,
+            query: None,
         }
     }
 
@@ -356,10 +359,25 @@ impl Editor {
         }
     }
 
+    fn move_to_search_term(&mut self, direction: SearchDirection) {
+        if let Some(query) = &self.query.clone() {
+            if direction == SearchDirection::Forward {
+                self.move_cursor(Key::Right);
+            }
+            if let Some(position) =
+                self.document
+                    .find(query, &self.cursor_position.into(), direction)
+            {
+                self.cursor_position = position.into();
+                self.scroll();
+            }
+        }
+    }
+
     fn search(&mut self) {
         let old_position = self.cursor_position;
         let mut direction = SearchDirection::Forward;
-        let query = self
+        self.query = self
             .prompt(
                 "Search (ESC to cancel, Arrows to navigate): ",
                 |editor, key, query| {
@@ -387,7 +405,7 @@ impl Editor {
                 },
             )
             .unwrap_or(None);
-        if query.is_none() {
+        if self.query.is_none() {
             self.cursor_position = old_position;
             self.scroll();
         }
@@ -455,6 +473,18 @@ impl Editor {
         self.doc_edit(|editor| {
             editor.document.replace(&editor.cursor_position.into(), c);
         });
+    }
+
+    fn term_read_key(&mut self) -> Result<Key, std::io::Error> {
+        loop {
+            if let Err(error) = self.refresh_screen() {
+                die(&error);
+            }
+            match self.terminal.read_key() {
+                Some(pressed_key) => return pressed_key,
+                None => (),
+            }
+        }
     }
 
     // TODO: Improve command parsing
@@ -567,7 +597,7 @@ impl Editor {
         let mut number_message = n.to_string();
         self.status_message = StatusMessage::from(number_message.clone());
         self.refresh_screen()?;
-        while let Key::Char(c) = Terminal::read_key()? {
+        while let Key::Char(c) = self.term_read_key()? {
             if c.is_numeric() {
                 number_message.push(c);
                 self.status_message = StatusMessage::from(number_message.clone());
@@ -630,7 +660,7 @@ impl Editor {
                 }
             }
             'r' => {
-                let pressed_key = Terminal::read_key();
+                let pressed_key = self.term_read_key();
                 if let Ok(key) = pressed_key {
                     match key {
                         Key::Char(key) => {
@@ -675,6 +705,8 @@ impl Editor {
             '/' => self.search(),
             ':' => self.execute_command(),
             'u' => self.undo(),
+            'n' => self.move_to_search_term(SearchDirection::Forward),
+            'N' => self.move_to_search_term(SearchDirection::Backward),
             _ => (),
         }
         if self.mode != Mode::Insert && self.document.is_dirty() {
@@ -771,7 +803,13 @@ impl Editor {
     }
 
     fn process_keypress(&mut self) -> Result<(), std::io::Error> {
-        let pressed_key = Terminal::read_key()?;
+        let key_async = self.terminal.read_key();
+        let pressed_key;
+        if let Some(key) = key_async {
+            pressed_key = key?;
+        } else {
+            return Ok(());
+        }
         match pressed_key {
             Key::Char(c) => match self.mode {
                 Mode::Insert => self.insert_mode(c),
@@ -1076,7 +1114,7 @@ impl Editor {
         loop {
             self.status_message = StatusMessage::from(format!("{}{}", prompt, result));
             self.refresh_screen()?;
-            let key = Terminal::read_key()?;
+            let key = self.term_read_key()?;
             match key {
                 Key::Backspace => {
                     let graphemes_cnt = result.graphemes(true).count();

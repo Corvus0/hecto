@@ -1,9 +1,9 @@
 use crate::Position;
 use std::io::{self, stdout, Write};
-use termion::color;
 use termion::event::Key;
-use termion::input::TermRead;
+use termion::input::{Keys, TermRead};
 use termion::raw::{IntoRawMode, RawTerminal};
+use termion::{async_stdin, color, AsyncReader};
 
 pub struct Size {
     pub width: u16,
@@ -12,6 +12,7 @@ pub struct Size {
 pub struct Terminal {
     size: Size,
     _stdout: RawTerminal<std::io::Stdout>,
+    _stdin: Keys<AsyncReader>,
 }
 
 impl Terminal {
@@ -23,6 +24,7 @@ impl Terminal {
                 height: size.1.saturating_sub(2),
             },
             _stdout: stdout().into_raw_mode()?,
+            _stdin: async_stdin().keys(),
         })
     }
 
@@ -52,12 +54,11 @@ impl Terminal {
         io::stdout().flush()
     }
 
-    pub fn read_key() -> Result<Key, std::io::Error> {
-        loop {
-            if let Some(key) = io::stdin().lock().keys().next() {
-                return key;
-            }
+    pub fn read_key(&mut self) -> Option<Result<Key, std::io::Error>> {
+        if let Some(key) = self._stdin.next() {
+            return Some(key);
         }
+        None
     }
 
     pub fn cursor_hide() {
