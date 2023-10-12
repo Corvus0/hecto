@@ -183,35 +183,25 @@ impl Document {
         self.dirty
     }
 
-    // TODO: Find all occurrences, which is to be stored in the editor
-    // This would allow for looping the search forwards and backwards
     #[allow(clippy::indexing_slicing)]
     pub fn find(&self, query: &str, at: &Position, direction: SearchDirection) -> Option<Position> {
         if at.y >= self.rows.len() {
             return None;
         }
         let mut position = Position { x: at.x, y: at.y };
-
-        let start = if direction == SearchDirection::Forward {
-            at.y
-        } else {
-            0
-        };
-        let end = if direction == SearchDirection::Forward {
-            self.rows.len()
-        } else {
-            at.y.saturating_add(1)
-        };
-        for _ in start..end {
+        for _ in 0..self.rows.len() {
             if let Some(row) = self.rows.get(position.y) {
                 if let Some(x) = row.find(query, position.x, direction) {
                     position.x = x;
                     return Some(position);
                 }
                 if direction == SearchDirection::Forward {
-                    position.y = position.y.saturating_add(1);
+                    position.y = position.y.saturating_add(1) % self.rows.len();
                     position.x = 0;
                 } else {
+                    if position.y == 0 {
+                        position.y = self.rows.len();
+                    }
                     position.y = position.y.saturating_sub(1);
                     position.x = self.rows[position.y].len();
                 }
