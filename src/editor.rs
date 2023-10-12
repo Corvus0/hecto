@@ -194,9 +194,22 @@ impl Editor {
         old_len: usize,
         index: usize,
         timestamp: &DateTime<Local>,
+        redo: bool,
     ) -> String {
-        let lines_changed = self.document.len() as i64 - old_len as i64;
-        let magnitude = if lines_changed > 0 { "more" } else { "fewer" };
+        let mut lines_changed = self.document.len() as i64 - old_len as i64;
+        let magnitude = if lines_changed > 0 || redo {
+            "more"
+        } else {
+            "fewer"
+        };
+        let change_type = if lines_changed != 0 {
+            "lines"
+        } else {
+            "change"
+        };
+        if lines_changed == 0 {
+            lines_changed += 1;
+        }
         let current_time = chrono::offset::Local::now();
         let diff = current_time - timestamp;
         let time = if diff.num_seconds() < 60 {
@@ -217,9 +230,10 @@ impl Editor {
             timestamp.format("%H:%M:%S").to_string()
         };
         format!(
-            "{} {} lines; before #{}  {}",
+            "{} {} {}; before #{}  {}",
             lines_changed.abs(),
             magnitude,
+            change_type,
             index,
             time
         )
@@ -239,6 +253,7 @@ impl Editor {
             prev_len,
             self.version_index.saturating_add(1),
             &version.timestamp,
+            false,
         );
         self.status_message = StatusMessage::from(msg);
         self.readjust_cursor();
@@ -262,7 +277,7 @@ impl Editor {
         let version = &self.versions[self.version_index];
         self.document = version.document.clone();
         self.cursor_position = *position;
-        let msg = self.version_status_message(prev_len, self.version_index, &timestamp);
+        let msg = self.version_status_message(prev_len, self.version_index, &timestamp, true);
         self.status_message = StatusMessage::from(msg);
         self.readjust_cursor();
         if let Err(error) = self.refresh_screen() {
@@ -373,68 +388,59 @@ impl Editor {
         }
     }
 
-    // TODO: DRY
-    fn doc_insert(&mut self, c: char) {
+    fn doc_edit<C>(&mut self, mut callback: C)
+    where
+        C: FnMut(&mut Self),
+    {
         if self.mode != Mode::Insert {
             self.save_prev_cursor_position();
         }
-        self.document.insert(&self.cursor_position.into(), c);
+        callback(self);
         if self.mode != Mode::Insert {
             self.add_version();
         }
     }
 
+    fn doc_insert(&mut self, c: char) {
+        self.doc_edit(|editor| {
+            editor.document.insert(&editor.cursor_position.into(), c);
+        })
+    }
+
     fn doc_insert_line(&mut self, line: &str) {
-        if self.mode != Mode::Insert {
-            self.save_prev_cursor_position();
-        }
-        self.document.insert_line(self.cursor_position.y, line);
-        if self.mode != Mode::Insert {
-            self.add_version();
-        }
+        self.doc_edit(|editor| {
+            editor.document.insert_line(editor.cursor_position.y, line);
+        })
     }
 
     fn doc_paste_clipboard(&mut self) {
         if let Some(content) = &self.clipboard.clone() {
-            if self.mode != Mode::Insert {
-                self.save_prev_cursor_position();
-            }
-            self.document.insert_line(self.cursor_position.y, &content);
-            if self.mode != Mode::Insert {
-                self.add_version();
-            }
+            self.doc_edit(|editor| {
+                editor
+                    .document
+                    .insert_line(editor.cursor_position.y, &content);
+            });
         }
     }
 
     fn doc_delete(&mut self) -> usize {
-        if self.mode != Mode::Insert {
-            self.save_prev_cursor_position();
-        }
-        let deleted = self.document.delete(&self.cursor_position.into());
-        if self.mode != Mode::Insert {
-            self.add_version();
-        }
+        let mut deleted = 0;
+        self.doc_edit(|editor| {
+            deleted = editor.document.delete(&editor.cursor_position.into());
+        });
         deleted
     }
 
     fn doc_delete_line(&mut self) {
-        if self.mode != Mode::Insert {
-            self.save_prev_cursor_position();
-        }
-        self.document.delete_line(self.cursor_position.y);
-        if self.mode != Mode::Insert {
-            self.add_version();
-        }
+        self.doc_edit(|editor| {
+            editor.document.delete_line(editor.cursor_position.y);
+        });
     }
 
     fn doc_replace(&mut self, c: char) {
-        if self.mode != Mode::Insert {
-            self.save_prev_cursor_position();
-        }
-        self.document.replace(&self.cursor_position.into(), c);
-        if self.mode != Mode::Insert {
-            self.add_version();
-        }
+        self.doc_edit(|editor| {
+            editor.document.replace(&editor.cursor_position.into(), c);
+        });
     }
 
     // TODO: Improve command parsing
