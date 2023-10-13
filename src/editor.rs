@@ -1,6 +1,8 @@
 use crate::Document;
 use crate::Row;
 use crate::Terminal;
+use anyhow::Result;
+use arboard::Clipboard;
 use chrono;
 use chrono::DateTime;
 use chrono::Local;
@@ -11,12 +13,14 @@ use std::time;
 use std::time::Duration;
 use std::time::Instant;
 use termion::color;
-use termion::event::Key;
+use termion::event::Event::{Key as KeyEvent, Mouse};
+use termion::event::{Key, MouseButton, MouseEvent};
 use unicode_segmentation::UnicodeSegmentation;
 
 const STATUS_FG_COLOR: color::Rgb = color::Rgb(63, 63, 63);
 const STATUS_BG_COLOR: color::Rgb = color::Rgb(239, 239, 239);
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const REFRESH_INTERVAL: u64 = 1000 / 120;
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum SearchDirection {
@@ -103,36 +107,19 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub fn run(&mut self) {
-        let mut should_refresh = false;
+    pub fn run(&mut self) -> Result<()> {
         loop {
-            if self.should_quit || should_refresh {
-                if let Err(error) = self.refresh_screen() {
-                    die(&error);
-                }
-                should_refresh = false;
-            }
+            self.refresh_screen()?;
             if self.should_quit {
                 break;
             }
-            match self.terminal.read_key() {
-                Some(pressed_key) => {
-                    if let Ok(key) = pressed_key {
-                        if let Err(error) = self.process_keypress(key) {
-                            die(&error);
-                        }
-                        should_refresh = true;
-                    } else if let Err(error) = pressed_key {
-                        die(&error);
-                    }
-                }
-                None => (),
+            if let Some(res) = self.term_read_event() {
+                res?;
+                continue;
             }
-            if !should_refresh {
-                thread::sleep(time::Duration::from_millis(1000 / 120));
-                should_refresh = true;
-            }
+            thread::sleep(time::Duration::from_millis(REFRESH_INTERVAL));
         }
+        Ok(())
     }
 
     pub fn default() -> Self {
@@ -181,13 +168,12 @@ impl Editor {
         }
     }
 
-    fn refresh_screen(&mut self) -> Result<(), std::io::Error> {
+    fn refresh_screen(&mut self) -> Result<()> {
         self.terminal.update_size()?;
         Terminal::cursor_hide();
         Terminal::cursor_position(&Position::default(), false);
         if self.should_quit {
             Terminal::clear_screen();
-            println!("Goodbye.\r");
         } else {
             self.document.highlight(
                 &self.highlighted_word,
@@ -209,7 +195,7 @@ impl Editor {
             );
         }
         Terminal::cursor_show();
-        Terminal::flush()
+        self.terminal.flush()
     }
 
     fn version_status_message(
@@ -266,10 +252,10 @@ impl Editor {
         format!("{}; before #{}  {}", change_msg, index, time)
     }
 
-    fn undo(&mut self) {
+    fn undo(&mut self) -> Result<()> {
         if self.version_index == 0 {
             self.status_message = StatusMessage::from("Already at oldest change".to_string());
-            return;
+            return Ok(());
         }
         let prev_doc = &self.versions[self.version_index].document;
         let prev_len = prev_doc.len();
@@ -287,15 +273,14 @@ impl Editor {
         );
         self.status_message = StatusMessage::from(msg);
         self.readjust_cursor();
-        if let Err(error) = self.refresh_screen() {
-            die(&error)
-        }
+        self.refresh_screen()?;
+        Ok(())
     }
 
-    fn redo(&mut self) {
+    fn redo(&mut self) -> Result<()> {
         if self.version_index == self.versions.len() - 1 {
             self.status_message = StatusMessage::from("Already at newest change".to_string());
-            return;
+            return Ok(());
         }
         let Version {
             document: prev_doc,
@@ -317,9 +302,8 @@ impl Editor {
         );
         self.status_message = StatusMessage::from(msg);
         self.readjust_cursor();
-        if let Err(error) = self.refresh_screen() {
-            die(&error);
-        }
+        self.refresh_screen()?;
+        Ok(())
     }
 
     fn add_version(&mut self) {
@@ -445,6 +429,34 @@ impl Editor {
         }
     }
 
+    fn term_read_key_blocking(&mut self) -> Result<Key> {
+        loop {
+            self.refresh_screen()?;
+            match self.terminal.read_event() {
+                Some(event) => match event? {
+                    KeyEvent(key) => return Ok(key),
+                    _ => (),
+                },
+                None => (),
+            }
+            thread::sleep(time::Duration::from_millis(REFRESH_INTERVAL));
+        }
+    }
+
+    fn term_read_event(&mut self) -> Option<Result<()>> {
+        match self.terminal.read_event() {
+            Some(event) => match event {
+                Ok(event) => match event {
+                    KeyEvent(key) => Some(self.process_keypress(key)),
+                    Mouse(me) => Some(self.process_mouse_event(me)),
+                    _ => None,
+                },
+                Err(error) => Some(Err(error)),
+            },
+            None => None,
+        }
+    }
+
     fn doc_edit<C>(&mut self, mut callback: C)
     where
         C: FnMut(&mut Self),
@@ -500,23 +512,10 @@ impl Editor {
         });
     }
 
-    fn term_read_key(&mut self) -> Result<Key, std::io::Error> {
-        loop {
-            if let Err(error) = self.refresh_screen() {
-                die(&error);
-            }
-            match self.terminal.read_key() {
-                Some(pressed_key) => return pressed_key,
-                None => (),
-            }
-            thread::sleep(time::Duration::from_millis(1000 / 120));
-        }
-    }
-
     // TODO: Improve command parsing
     // Split inputs by whitespace first and process entire words as commands
     // if no match and only one word then split commands by characters
-    fn execute_command(&mut self) {
+    fn execute_command(&mut self) -> Result<()> {
         let input = self
             .prompt(":", |_, _, _| {})
             .unwrap_or(None)
@@ -561,7 +560,7 @@ impl Editor {
                                     path
                                 ));
                             };
-                            return;
+                            return Ok(());
                         } else {
                             self.status_message =
                                 StatusMessage::from(format!("ERR: No path entered"));
@@ -574,7 +573,7 @@ impl Editor {
                             self.status_message = StatusMessage::from(
                                 "WARNING! File has unsaved changes: add ! to override.".to_string(),
                             );
-                            return;
+                            return Ok(());
                         } else {
                             match c {
                                 'q' => self.should_quit = true,
@@ -594,13 +593,13 @@ impl Editor {
                                                 path
                                             ));
                                         };
-                                        return;
+                                        return Ok(());
                                     } else {
                                         self.status_message =
                                             StatusMessage::from(format!("ERR: No path entered"));
                                     }
                                 }
-                                'u' => self.undo(),
+                                'u' => self.undo()?,
                                 _ => (),
                             }
                         }
@@ -609,21 +608,21 @@ impl Editor {
                     _ => {
                         self.status_message =
                             StatusMessage::from(format!("Command not found: {}", c));
-                        return;
                     }
                 }
             }
         }
+        Ok(())
     }
 
-    fn repeat_keypress(&mut self, n: u32) -> Result<(), std::io::Error> {
+    fn repeat_keypress(&mut self, n: u32) -> Result<()> {
         if n == 0 {
             return Ok(());
         }
         let mut number_message = n.to_string();
         self.status_message = StatusMessage::from(number_message.clone());
         self.refresh_screen()?;
-        while let Key::Char(c) = self.term_read_key()? {
+        while let Key::Char(c) = self.term_read_key_blocking()? {
             if c.is_numeric() {
                 number_message.push(c);
                 self.status_message = StatusMessage::from(number_message.clone());
@@ -634,7 +633,7 @@ impl Editor {
                 }
                 if let Ok(repeats) = number_message.parse() {
                     for _ in 0..repeats {
-                        self.normal_mode(c);
+                        self.normal_mode(c)?;
                     }
                 }
                 break;
@@ -647,13 +646,11 @@ impl Editor {
         Ok(())
     }
 
-    fn normal_mode(&mut self, c: char) {
+    fn normal_mode(&mut self, c: char) -> Result<()> {
         match c {
             c if c.is_numeric() => {
                 if let Some(n) = c.to_digit(10) {
-                    if let Err(error) = self.repeat_keypress(n) {
-                        die(&error);
-                    }
+                    self.repeat_keypress(n)?
                 }
             }
             'h' => self.move_cursor(Key::Left),
@@ -686,16 +683,12 @@ impl Editor {
                 }
             }
             'r' => {
-                let pressed_key = self.term_read_key();
-                if let Ok(key) = pressed_key {
-                    match key {
-                        Key::Char(key) => {
-                            self.doc_replace(key);
-                        }
-                        _ => return,
+                let key = self.term_read_key_blocking()?;
+                match key {
+                    Key::Char(key) => {
+                        self.doc_replace(key);
                     }
-                } else if let Err(error) = pressed_key {
-                    die(&error);
+                    _ => return Ok(()),
                 }
             }
             'x' | 's' => {
@@ -729,8 +722,8 @@ impl Editor {
             'R' => self.switch_mode(Mode::Replace),
             'v' => self.switch_mode(Mode::Visual),
             '/' => self.search(),
-            ':' => self.execute_command(),
-            'u' => self.undo(),
+            ':' => self.execute_command()?,
+            'u' => self.undo()?,
             'n' => self.move_to_search_term(SearchDirection::Forward),
             'N' => self.move_to_search_term(SearchDirection::Backward),
             _ => (),
@@ -738,6 +731,7 @@ impl Editor {
         if self.mode != Mode::Insert && self.document.is_dirty() {
             self.add_version();
         }
+        Ok(())
     }
 
     fn insert_mode(&mut self, c: char) {
@@ -795,14 +789,15 @@ impl Editor {
     // If row.y == start.y, highlight all characters >= start.x
     // else if row.y == end.y, highlight all characters <= end.x
     // else highlight entire row
-    fn visual_mode(&mut self, c: char) {
+    fn visual_mode(&mut self, c: char) -> Result<()> {
         self.selection_start = self.cursor_position.into();
         self.switch_mode(Mode::Normal);
         match c {
-            'h' | 'j' | 'k' | 'l' | 'c' | 'd' | 'y' => self.normal_mode(c),
+            'h' | 'j' | 'k' | 'l' | 'c' | 'd' | 'y' => self.normal_mode(c)?,
             _ => (),
         }
         self.switch_mode(Mode::Visual);
+        Ok(())
     }
 
     fn switch_mode(&mut self, mode: Mode) {
@@ -817,26 +812,24 @@ impl Editor {
                 if prev_mode == Mode::Insert && self.document.is_dirty() {
                     self.add_version();
                 }
-                Terminal::cursor_normal();
             }
             Insert => {
                 let prev_version = &mut self.versions[self.version_index];
                 prev_version.position = self.cursor_position;
                 prev_version.timestamp = chrono::offset::Local::now();
-                Terminal::cursor_edit();
             }
             _ => (),
         }
         self.mode = mode;
     }
 
-    fn process_keypress(&mut self, pressed_key: Key) -> Result<(), std::io::Error> {
+    fn process_keypress(&mut self, pressed_key: Key) -> Result<()> {
         match pressed_key {
             Key::Char(c) => match self.mode {
                 Mode::Insert => self.insert_mode(c),
-                Mode::Normal => self.normal_mode(c),
+                Mode::Normal => self.normal_mode(c)?,
                 Mode::Replace => self.replace_mode(c),
-                Mode::Visual => self.visual_mode(c),
+                Mode::Visual => self.visual_mode(c)?,
             },
             Key::Esc => self.switch_mode(Mode::Normal),
             Key::Delete => {
@@ -862,12 +855,56 @@ impl Editor {
             | Key::Home => self.move_cursor(pressed_key),
             Key::Ctrl('r') => {
                 if self.mode == Mode::Normal {
-                    self.redo()
+                    self.redo()?
                 }
             }
             _ => (),
         }
         self.scroll();
+        Ok(())
+    }
+
+    fn process_mouse_event(&mut self, me: MouseEvent) -> Result<()> {
+        use MouseButton::*;
+        use MouseEvent::*;
+        match me {
+            Press(Left, x, y) => {
+                let (mut x, mut y): (usize, usize) = (x.into(), y.into());
+                if self.document.row(y).is_some() {
+                    x = x.saturating_sub(5);
+                }
+                x = x.saturating_sub(1) + self.offset.x;
+                y = y.saturating_sub(1) + self.offset.y;
+                self.cursor_position = CursorPosition {
+                    x,
+                    y,
+                    max_x: self.cursor_position.max_x,
+                };
+                self.readjust_cursor();
+            }
+            Press(Right, _, _) | Press(Middle, _, _) => {
+                self.switch_mode(Mode::Insert);
+                let content = Clipboard::new()?.get_text()?;
+                for c in content.chars() {
+                    self.doc_insert(c);
+                }
+            }
+            // TODO: Scroll view without having to move cursor
+            // Everything is already offset based so start there
+            // Need to change how scrolling works with offsets
+            // Need to reset offset when inserting or moving cursor with keyboard
+            // Need to move cursor if left clicking
+            Press(WheelDown, _, _) => {
+                self.move_cursor(Key::Down);
+                self.scroll();
+            }
+            Press(WheelUp, _, _) => {
+                self.move_cursor(Key::Up);
+                self.scroll();
+            }
+            Release(_x, _y) => (),
+            Hold(_x, _y) => (),
+        }
         Ok(())
     }
 
@@ -1127,7 +1164,7 @@ impl Editor {
         }
     }
 
-    fn prompt<C>(&mut self, prompt: &str, mut callback: C) -> Result<Option<String>, std::io::Error>
+    fn prompt<C>(&mut self, prompt: &str, mut callback: C) -> Result<Option<String>>
     where
         C: FnMut(&mut Self, Key, &String),
     {
@@ -1135,7 +1172,7 @@ impl Editor {
         loop {
             self.status_message = StatusMessage::from(format!("{}{}", prompt, result));
             self.refresh_screen()?;
-            let key = self.term_read_key()?;
+            let key = self.term_read_key_blocking()?;
             match key {
                 Key::Backspace => {
                     let graphemes_cnt = result.graphemes(true).count();
@@ -1167,9 +1204,4 @@ impl Editor {
         }
         Ok(Some(result))
     }
-}
-
-fn die(e: &std::io::Error) {
-    Terminal::clear_screen();
-    panic!("{}", e);
 }

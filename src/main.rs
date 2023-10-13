@@ -13,6 +13,7 @@ mod filetype;
 mod highlighting;
 mod row;
 mod terminal;
+use anyhow::{Error, Result};
 pub use document::Document;
 use editor::Editor;
 pub use editor::Position;
@@ -23,5 +24,19 @@ pub use row::Row;
 pub use terminal::Terminal;
 
 fn main() {
-    Editor::default().run();
+    if let Err(error) = run() {
+        die(error);
+    }
+}
+
+fn run() -> Result<()> {
+    let mut editor = Editor::default();
+    editor.run()?;
+    Ok(())
+}
+
+fn die(error: Error) -> ! {
+    Terminal::clear_screen();
+    let _ = Terminal::flush_static();
+    panic!("{}", error);
 }

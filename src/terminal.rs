@@ -1,8 +1,11 @@
 use crate::Position;
-use std::io::{self, stdout, Write};
-use termion::event::Key;
-use termion::input::{Keys, TermRead};
+use anyhow::Result;
+use std::io::{stdout, Stdout, Write};
+use termion::cursor::{Goto, Hide, Show};
+use termion::event::Event;
+use termion::input::{Events, MouseTerminal, TermRead};
 use termion::raw::{IntoRawMode, RawTerminal};
+use termion::screen::{AlternateScreen, IntoAlternateScreen};
 use termion::{async_stdin, color, AsyncReader};
 
 pub struct Size {
@@ -11,20 +14,22 @@ pub struct Size {
 }
 pub struct Terminal {
     size: Size,
-    _stdout: RawTerminal<std::io::Stdout>,
-    _stdin: Keys<AsyncReader>,
+    stdin: Events<AsyncReader>,
+    stdout: RawTerminal<AlternateScreen<MouseTerminal<Stdout>>>,
 }
 
 impl Terminal {
-    pub fn default() -> Result<Self, std::io::Error> {
+    pub fn default() -> Result<Self> {
         let size = termion::terminal_size()?;
         Ok(Self {
             size: Size {
                 width: size.0.saturating_sub(5),
                 height: size.1.saturating_sub(2),
             },
-            _stdout: stdout().into_raw_mode()?,
-            _stdin: async_stdin().keys(),
+            stdin: async_stdin().events(),
+            stdout: MouseTerminal::from(stdout())
+                .into_alternate_screen()?
+                .into_raw_mode()?,
         })
     }
 
@@ -32,7 +37,7 @@ impl Terminal {
         &self.size
     }
 
-    pub fn update_size(&mut self) -> Result<(), std::io::Error> {
+    pub fn update_size(&mut self) -> Result<()> {
         let size = termion::terminal_size()?;
         self.size = Size {
             width: size.0.saturating_sub(5),
@@ -56,31 +61,27 @@ impl Terminal {
         y = y.saturating_add(1);
         let x = x as u16;
         let y = y as u16;
-        print!("{}", termion::cursor::Goto(x, y));
+        print!("{}", Goto(x, y));
     }
 
-    pub fn flush() -> Result<(), std::io::Error> {
-        io::stdout().flush()
+    pub fn flush_static() -> Result<()> {
+        stdout().flush().map_err(anyhow::Error::from)
     }
 
-    pub fn read_key(&mut self) -> Option<Result<Key, std::io::Error>> {
-        self._stdin.next()
+    pub fn flush(&mut self) -> Result<()> {
+        self.stdout.flush().map_err(anyhow::Error::from)
+    }
+
+    pub fn read_event(&mut self) -> Option<Result<Event>> {
+        self.stdin.next().map(|op| op.map_err(anyhow::Error::from))
     }
 
     pub fn cursor_hide() {
-        print!("{}", termion::cursor::Hide);
+        print!("{Hide}");
     }
 
     pub fn cursor_show() {
-        print!("{}", termion::cursor::Show);
-    }
-
-    pub fn cursor_normal() {
-        print! {"{}", termion::cursor::SteadyBlock}
-    }
-
-    pub fn cursor_edit() {
-        print! {"{}", termion::cursor::SteadyUnderline}
+        print!("{Show}");
     }
 
     pub fn clear_current_line() {

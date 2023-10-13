@@ -2,8 +2,9 @@ use crate::FileType;
 use crate::Position;
 use crate::Row;
 use crate::SearchDirection;
+use anyhow::Result;
 use std::fs;
-use std::io::{Error, Write};
+use std::io::Write;
 use std::path::Path;
 
 #[derive(Default)]
@@ -26,7 +27,7 @@ impl Clone for Document {
 }
 
 impl Document {
-    pub fn open(filename: &str) -> Result<Self, std::io::Error> {
+    pub fn open(filename: &str) -> Result<Self> {
         let contents = fs::read_to_string(filename)?;
         let file_type = FileType::from(filename);
         let mut rows = Vec::new();
@@ -150,7 +151,7 @@ impl Document {
         self.unhighlight_rows(y);
     }
 
-    pub fn save(&mut self) -> Result<usize, Error> {
+    pub fn save(&mut self) -> Result<usize> {
         let mut bytes_written = 0;
         if let Some(file_name) = &self.file_name {
             let file_exists = Path::new(file_name).exists();
