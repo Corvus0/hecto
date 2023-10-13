@@ -648,29 +648,26 @@ impl Editor {
 
     fn normal_mode(&mut self, c: char) -> Result<()> {
         match c {
-            c if c.is_numeric() => {
-                if let Some(n) = c.to_digit(10) {
-                    self.repeat_keypress(n)?
-                }
-            }
             'h' => self.move_cursor(Key::Left),
             'j' => self.move_cursor(Key::Down),
             'k' => self.move_cursor(Key::Up),
             'l' => self.move_cursor(Key::Right),
+            '0' => self.move_cursor(Key::Home),
+            '$' => self.move_cursor(Key::End),
             'g' | 'G' => {
                 self.cursor_position.y = if c == 'g' { 0 } else { self.document.len() };
                 self.cursor_position.x = 0;
                 self.cursor_position.max_x = 0;
             }
             'a' | 'A' | 'i' | 'I' => {
-                self.switch_mode(Mode::Insert);
                 if c == 'a' {
                     self.move_cursor(Key::Right);
                 } else if c == 'A' {
                     self.move_cursor(Key::End);
                 } else if c == 'I' {
-                    self.move_cursor(Key::Home);
+                    self.move_cursor(Key::Char(c));
                 }
+                self.switch_mode(Mode::Insert);
             }
             'o' | 'O' => {
                 self.switch_mode(Mode::Insert);
@@ -726,6 +723,11 @@ impl Editor {
             'u' => self.undo()?,
             'n' => self.move_to_search_term(SearchDirection::Forward),
             'N' => self.move_to_search_term(SearchDirection::Backward),
+            c if c.is_numeric() => {
+                if let Some(n) = c.to_digit(10) {
+                    self.repeat_keypress(n)?
+                }
+            }
             _ => (),
         }
         if self.mode != Mode::Insert && self.document.is_dirty() {
@@ -1034,6 +1036,10 @@ impl Editor {
             }
             Key::End => {
                 x = width;
+                max_x = x;
+            }
+            Key::Char('I') => {
+                x = self.document.left_space(y);
                 max_x = x;
             }
             _ => (),

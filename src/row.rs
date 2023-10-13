@@ -78,6 +78,15 @@ impl Row {
         self.len == 0
     }
 
+    pub fn left_space(&self) -> usize {
+        for (i, c) in self.string.chars().enumerate() {
+            if c != ' ' {
+                return i;
+            }
+        }
+        0
+    }
+
     pub fn insert(&mut self, at: usize, c: char) {
         if at >= self.len() {
             self.string.push(c);

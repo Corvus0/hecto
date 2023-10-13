@@ -58,6 +58,13 @@ impl Document {
         self.rows.len()
     }
 
+    pub fn left_space(&self, index: usize) -> usize {
+        if let Some(row) = self.row(index) {
+            return row.left_space();
+        }
+        0
+    }
+
     pub fn lines_changed(&self) -> usize {
         self.rows
             .iter()
