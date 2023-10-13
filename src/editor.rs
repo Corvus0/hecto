@@ -884,10 +884,19 @@ impl Editor {
             }
             // TODO: Fix double pasting
             Press(Right, _, _) | Press(Middle, _, _) => {
-                self.switch_mode(Mode::Insert);
-                let content = Clipboard::new()?.get_text()?;
-                for c in content.chars() {
-                    self.doc_insert(c);
+                use arboard::Error::*;
+                match Clipboard::new()?.get_text() {
+                    Ok(content) => {
+                        self.switch_mode(Mode::Insert);
+                        for c in content.chars() {
+                            self.doc_insert(c);
+                        }
+                    }
+                    Err(ContentNotAvailable)
+                    | Err(ClipboardNotSupported)
+                    | Err(ClipboardOccupied)
+                    | Err(ConversionFailure) => (),
+                    Err(error) => return Err(error.into()),
                 }
             }
             // TODO: Scroll view without having to move cursor
