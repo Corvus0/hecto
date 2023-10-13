@@ -882,6 +882,7 @@ impl Editor {
                 };
                 self.readjust_cursor();
             }
+            // TODO: Fix double pasting
             Press(Right, _, _) | Press(Middle, _, _) => {
                 self.switch_mode(Mode::Insert);
                 let content = Clipboard::new()?.get_text()?;
