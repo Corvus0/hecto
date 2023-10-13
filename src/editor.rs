@@ -882,13 +882,12 @@ impl Editor {
                 };
                 self.readjust_cursor();
             }
-            // TODO: Fix double pasting
             Press(Right, _, _) | Press(Middle, _, _) => {
                 use arboard::Error::*;
                 match Clipboard::new()?.get_text() {
                     Ok(content) => {
                         self.switch_mode(Mode::Insert);
-                        for c in content.chars() {
+                        for c in content.chars().rev() {
                             self.doc_insert(c);
                         }
                     }
