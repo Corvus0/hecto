@@ -817,11 +817,13 @@ impl Editor {
                 if prev_mode == Mode::Insert && self.document.is_dirty() {
                     self.add_version();
                 }
+                Terminal::cursor_normal();
             }
             Insert => {
                 let prev_version = &mut self.versions[self.version_index];
                 prev_version.position = self.cursor_position;
                 prev_version.timestamp = chrono::offset::Local::now();
+                Terminal::cursor_edit();
             }
             _ => (),
         }

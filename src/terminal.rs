@@ -34,10 +34,10 @@ impl Terminal {
 
     pub fn update_size(&mut self) -> Result<(), std::io::Error> {
         let size = termion::terminal_size()?;
-            self.size = Size {
-                width: size.0.saturating_sub(5),
-                height: size.1.saturating_sub(2),
-            };
+        self.size = Size {
+            width: size.0.saturating_sub(5),
+            height: size.1.saturating_sub(2),
+        };
         Ok(())
     }
 
@@ -73,6 +73,14 @@ impl Terminal {
 
     pub fn cursor_show() {
         print!("{}", termion::cursor::Show);
+    }
+
+    pub fn cursor_normal() {
+        print! {"{}", termion::cursor::SteadyBlock}
+    }
+
+    pub fn cursor_edit() {
+        print! {"{}", termion::cursor::SteadyUnderline}
     }
 
     pub fn clear_current_line() {
