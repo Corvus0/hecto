@@ -397,32 +397,29 @@ impl Editor {
         let old_position = self.cursor_position;
         let mut direction = SearchDirection::Forward;
         self.query = self
-            .prompt(
-                "Search (ESC to cancel, Arrows to navigate): ",
-                |editor, key, query| {
-                    let mut moved = false;
-                    match key {
-                        Key::Right | Key::Down => {
-                            direction = SearchDirection::Forward;
-                            editor.move_cursor(Key::Right);
-                            moved = true;
-                        }
-                        Key::Left | Key::Up => direction = SearchDirection::Backward,
-                        _ => direction = SearchDirection::Forward,
+            .prompt("/", |editor, key, query| {
+                let mut moved = false;
+                match key {
+                    Key::Right | Key::Down => {
+                        direction = SearchDirection::Forward;
+                        editor.move_cursor(Key::Right);
+                        moved = true;
                     }
-                    if let Some(position) =
-                        editor
-                            .document
-                            .find(query, &editor.cursor_position.into(), direction)
-                    {
-                        editor.cursor_position = position.into();
-                        editor.scroll();
-                    } else if moved {
-                        editor.move_cursor(Key::Left);
-                    }
-                    editor.highlighted_word = Some(query.to_string());
-                },
-            )
+                    Key::Left | Key::Up => direction = SearchDirection::Backward,
+                    _ => direction = SearchDirection::Forward,
+                }
+                if let Some(position) =
+                    editor
+                        .document
+                        .find(query, &editor.cursor_position.into(), direction)
+                {
+                    editor.cursor_position = position.into();
+                    editor.scroll();
+                } else if moved {
+                    editor.move_cursor(Key::Left);
+                }
+                editor.highlighted_word = Some(query.to_string());
+            })
             .unwrap_or(None);
         if self.query.is_none() {
             self.cursor_position = old_position;
