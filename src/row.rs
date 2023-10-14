@@ -156,9 +156,10 @@ impl Row {
         let mut splitted_length = self.len.saturating_sub(length).saturating_add(spaces);
         if at < spaces {
             row.insert_str(0, &" ".repeat(spaces.saturating_sub(at))[..]);
-            length = length.saturating_add(spaces.saturating_sub(at));
+            let indent_offset = spaces.saturating_sub(at);
+            length = length.saturating_add(indent_offset);
             splitted_length = self.len.saturating_sub(length).saturating_add(spaces);
-            spaces = spaces.saturating_sub(spaces.saturating_sub(at));
+            spaces = spaces.saturating_sub(indent_offset);
         }
         splitted_row.insert_str(0, &" ".repeat(spaces)[..]);
         self.string = row;
