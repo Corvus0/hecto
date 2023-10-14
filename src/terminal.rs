@@ -52,16 +52,20 @@ impl Terminal {
 
     #[allow(clippy::cast_possible_truncation)]
     pub fn cursor_position(position: &Position, is_row: bool) {
-        let Position { mut x, mut y, .. } = position;
+        let Position { mut x, mut y } = position;
         if is_row {
             x = x.saturating_add(6);
         } else {
             x = x.saturating_add(1);
         }
         y = y.saturating_add(1);
-        let x = x as u16;
-        let y = y as u16;
-        print!("{}", Goto(x, y));
+        print!(
+            "{}",
+            Goto(
+                x.try_into().unwrap_or_default(),
+                y.try_into().unwrap_or_default()
+            )
+        );
     }
 
     pub fn flush_static() -> Result<()> {

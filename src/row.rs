@@ -37,7 +37,7 @@ impl Row {
             .graphemes(true)
             .enumerate()
             .skip(start)
-            .take(end - start)
+            .take(end.saturating_sub(start))
         {
             if let Some(c) = grapheme.chars().next() {
                 let highlighting_type = self
@@ -90,7 +90,7 @@ impl Row {
     pub fn insert(&mut self, at: usize, c: char) {
         if at >= self.len() {
             self.string.push(c);
-            self.len += 1;
+            self.len = self.len.saturating_add(1);
             return;
         }
         let mut result: String = String::new();
@@ -100,7 +100,7 @@ impl Row {
             }
             result.push_str(grapheme);
         }
-        self.len += 1;
+        self.len = self.len.saturating_add(1);
         self.string = result;
         self.dirty = true;
     }
@@ -119,13 +119,13 @@ impl Row {
                 }
             }
         }
-        let mut deleted = 0;
+        let mut deleted: usize = 0;
         let mut result: String = String::new();
         for (index, grapheme) in self.string[..].graphemes(true).enumerate() {
             if index < start || (index >= start && !remove_spaces && index < at) || index > at {
                 result.push_str(grapheme);
             } else {
-                deleted += 1;
+                deleted = deleted.saturating_add(1);
             }
         }
         self.len -= deleted;
@@ -136,16 +136,16 @@ impl Row {
 
     pub fn append(&mut self, new: &Self) {
         self.string = format!("{}{}", self.string, new.string);
-        self.len += new.len;
+        self.len = self.len.saturating_add(new.len);
     }
 
     pub fn split(&mut self, at: usize) -> Self {
         let mut row: String = String::new();
-        let mut length = 0;
+        let mut length: usize = 0;
         let mut splitted_row: String = String::new();
         for (index, grapheme) in self.string[..].graphemes(true).enumerate() {
             if index < at {
-                length += 1;
+                length = length.saturating_add(1);
                 row.push_str(grapheme);
             } else {
                 splitted_row.push_str(grapheme);
@@ -153,12 +153,12 @@ impl Row {
         }
 
         let mut spaces = self.indentation();
-        let mut splitted_length = self.len - length + spaces;
+        let mut splitted_length = self.len.saturating_sub(length).saturating_add(spaces);
         if at < spaces {
-            row.insert_str(0, &" ".repeat(spaces - at)[..]);
-            length += spaces - at;
-            splitted_length = self.len - length + spaces;
-            spaces -= spaces - at;
+            row.insert_str(0, &" ".repeat(spaces.saturating_sub(at))[..]);
+            length = length.saturating_add(spaces.saturating_sub(at));
+            splitted_length = self.len.saturating_sub(length).saturating_add(spaces);
+            spaces = spaces.saturating_sub(spaces.saturating_sub(at));
         }
         splitted_row.insert_str(0, &" ".repeat(spaces)[..]);
         self.string = row;
@@ -175,14 +175,14 @@ impl Row {
     }
 
     pub fn indentation(&self) -> usize {
-        let mut spaces = 0;
+        let mut spaces: usize = 0;
         for grapheme in self.string[..].graphemes(true) {
             if grapheme != &" "[..] {
                 break;
             }
-            spaces += 1;
+            spaces = spaces.saturating_add(1);
         }
-        spaces - (spaces % 4)
+        spaces.saturating_sub(spaces % 4)
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -211,7 +211,7 @@ impl Row {
         let substring: String = self.string[..]
             .graphemes(true)
             .skip(start)
-            .take(end - start)
+            .take(end.saturating_sub(start))
             .collect();
         let matching_byte_index = if direction == SearchDirection::Forward {
             substring.find(query)
@@ -224,7 +224,7 @@ impl Row {
             {
                 if matching_byte_index == byte_index {
                     #[allow(clippy::integer_arithmetic)]
-                    return Some(start + grapheme_index);
+                    return Some(start.saturating_add(grapheme_index));
                 }
             }
         }
@@ -273,7 +273,7 @@ impl Row {
         }
         for _ in 0..substring.len() {
             self.highlighting.push(hl_type);
-            *index += 1;
+            *index = index.saturating_add(1);
         }
         true
     }
@@ -287,7 +287,7 @@ impl Row {
     ) -> bool {
         if *index > 0 {
             #[allow(clippy::indexing_slicing, clippy::integer_arithmetic)]
-            let prev_char = chars[*index - 1];
+            let prev_char = chars[index.saturating_sub(1)];
             if !is_separator(prev_char) {
                 return false;
             }
@@ -295,7 +295,7 @@ impl Row {
         for word in keywords {
             if *index < chars.len().saturating_sub(word.len()) {
                 #[allow(clippy::indexing_slicing, clippy::integer_arithmetic)]
-                let next_char = chars[*index + word.len()];
+                let next_char = chars[index.saturating_add(word.len())];
                 if !is_separator(next_char) {
                     continue;
                 }
@@ -354,7 +354,7 @@ impl Row {
                     if *closing_char == '\'' {
                         for _ in 0..=closing_index.saturating_sub(*index) {
                             self.highlighting.push(highlighting::Type::Character);
-                            *index += 1;
+                            *index = index.saturating_add(1);
                         }
                         return true;
                     }
@@ -376,7 +376,7 @@ impl Row {
                 if *next_char == '/' {
                     for _ in *index..chars.len() {
                         self.highlighting.push(highlighting::Type::Comment);
-                        *index += 1;
+                        *index = index.saturating_add(1);
                     }
                     return true;
                 }
@@ -396,15 +396,16 @@ impl Row {
         if opts.multiline_comments() && c == '/' && *index < chars.len() {
             if let Some(next_char) = chars.get(index.saturating_add(1)) {
                 if *next_char == '*' {
-                    let closing_index =
-                        if let Some(closing_index) = self.string[*index + 2..].find("*/") {
-                            *index + closing_index + 4
-                        } else {
-                            chars.len()
-                        };
+                    let closing_index = if let Some(closing_index) =
+                        self.string[index.saturating_add(2)..].find("*/")
+                    {
+                        index.saturating_add(closing_index).saturating_add(4)
+                    } else {
+                        chars.len()
+                    };
                     for _ in *index..closing_index {
                         self.highlighting.push(highlighting::Type::MultilineComment);
-                        *index += 1;
+                        *index = index.saturating_add(1);
                     }
                     return true;
                 }
@@ -423,10 +424,10 @@ impl Row {
         if opts.strings() && c == '"' {
             loop {
                 self.highlighting.push(highlighting::Type::String);
-                *index += 1;
+                *index = index.saturating_add(1);
                 if let Some(next_char) = chars.get(*index) {
                     if *next_char == '"' {
-                        if let Some(prev_char) = chars.get(*index - 1) {
+                        if let Some(prev_char) = chars.get(index.saturating_sub(1)) {
                             if *prev_char != '\\' {
                                 break;
                             } else {
@@ -440,7 +441,7 @@ impl Row {
                 }
             }
             self.highlighting.push(highlighting::Type::String);
-            *index += 1;
+            *index = index.saturating_add(1);
             return true;
         }
         false
@@ -456,14 +457,14 @@ impl Row {
         if opts.numbers() && c.is_ascii_digit() {
             if *index > 0 {
                 #[allow(clippy::indexing_slicing, clippy::integer_arithmetic)]
-                let prev_char = chars[*index - 1];
+                let prev_char = chars[index.saturating_sub(1)];
                 if !is_separator(prev_char) {
                     return false;
                 }
             }
             loop {
                 self.highlighting.push(highlighting::Type::Number);
-                *index += 1;
+                *index = index.saturating_add(1);
                 if let Some(next_char) = chars.get(*index) {
                     if *next_char != '.' && !next_char.is_ascii_digit() {
                         break;
@@ -493,7 +494,7 @@ impl Row {
         let mut in_ml_comment = start_with_comment;
         if in_ml_comment {
             let closing_index = if let Some(closing_index) = self.string.find("*/") {
-                closing_index + 2
+                closing_index.saturating_add(2)
             } else {
                 chars.len()
             };
@@ -524,7 +525,7 @@ impl Row {
                 }
             }
             self.highlighting.push(highlighting::Type::None);
-            index += 1;
+            index = index.saturating_add(1);
         }
         self.highlight_match(word);
         if in_ml_comment && &self.string[self.string.len().saturating_sub(2)..] != "*/" {

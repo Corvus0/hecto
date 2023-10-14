@@ -25,7 +25,7 @@ pub use terminal::Terminal;
 
 fn main() {
     if let Err(error) = run() {
-        die(error);
+        die(&error);
     }
 }
 
@@ -35,7 +35,7 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn die(error: Error) -> ! {
+fn die(error: &Error) -> ! {
     Terminal::clear_screen();
     let _ = Terminal::flush_static();
     panic!("{}", error);
