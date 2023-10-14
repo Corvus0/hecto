@@ -885,6 +885,9 @@ impl Editor {
         use MouseEvent::*;
         match me {
             Press(Left, x, y) => {
+                if y > self.terminal.size().height {
+                    return Ok(());
+                }
                 let (mut x, mut y): (usize, usize) = (x.into(), y.into());
                 if self.document.row(y).is_some() {
                     x = x.saturating_sub(5);
