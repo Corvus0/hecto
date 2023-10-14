@@ -606,8 +606,9 @@ impl Editor {
                 "e" => self.open_command(commands, false),
                 "e!" => self.open_command(commands, true),
                 "c" => self.cwd_command(commands),
-                c => {
-                    self.status_message = StatusMessage::from(format!("Command not found: {}", c));
+                _ => {
+                    self.status_message =
+                        StatusMessage::from(format!("Command not found: {}", command));
                 }
             },
             None => (),
