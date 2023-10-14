@@ -201,7 +201,11 @@ impl Editor {
                 !self.document.row(self.cursor_position.y).is_none(),
             );
         }
-        Terminal::cursor_show();
+        if self.cursor_position.y >= self.offset.y
+            && self.cursor_position.y.abs_diff(self.offset.y) < self.terminal.size().height.into()
+        {
+            Terminal::cursor_show();
+        }
         self.terminal.flush()
     }
 
@@ -903,18 +907,11 @@ impl Editor {
                 self.readjust_cursor();
             }
             Press(Right, _, _) | Press(Middle, _, _) => self.switch_mode(Mode::Insert),
-            // TODO: Scroll view without having to move cursor
-            // Everything is already offset based so start there
-            // Need to change how scrolling works with offsets
-            // Need to reset offset when inserting or moving cursor with keyboard
-            // Need to move cursor if left clicking
             Press(WheelDown, _, _) => {
-                self.move_cursor(Key::Down);
-                self.scroll();
+                self.offset.y = std::cmp::min(self.offset.y.saturating_add(1), self.document.len());
             }
             Press(WheelUp, _, _) => {
-                self.move_cursor(Key::Up);
-                self.scroll();
+                self.offset.y = self.offset.y.saturating_sub(1);
             }
             Release(_x, _y) => (),
             Hold(_x, _y) => (),
