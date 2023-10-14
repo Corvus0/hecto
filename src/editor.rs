@@ -593,21 +593,24 @@ impl Editor {
 
     fn parse_command(&mut self, input: &str) {
         let commands: Vec<&str> = input.split_whitespace().collect();
-        match commands[0] {
-            "w" => self.save(),
-            "p" => self.show_cwd(),
-            "wq" | "x" => {
-                self.save();
-                self.quit(false);
-            }
-            "q" => self.quit(false),
-            "q!" => self.quit(true),
-            "e" => self.open_command(commands, false),
-            "e!" => self.open_command(commands, true),
-            "c" => self.cwd_command(commands),
-            c => {
-                self.status_message = StatusMessage::from(format!("Command not found: {}", c));
-            }
+        match commands.get(0) {
+            Some(command) => match *command {
+                "w" => self.save(),
+                "p" => self.show_cwd(),
+                "wq" | "x" => {
+                    self.save();
+                    self.quit(false);
+                }
+                "q" => self.quit(false),
+                "q!" => self.quit(true),
+                "e" => self.open_command(commands, false),
+                "e!" => self.open_command(commands, true),
+                "c" => self.cwd_command(commands),
+                c => {
+                    self.status_message = StatusMessage::from(format!("Command not found: {}", c));
+                }
+            },
+            None => (),
         }
     }
 
