@@ -2,16 +2,13 @@ use crate::Document;
 use crate::Row;
 use crate::Terminal;
 use anyhow::Result;
-use arboard::Clipboard;
 use chrono;
 use chrono::DateTime;
 use chrono::Local;
 use std::env;
 use std::path::Path;
 use std::thread;
-use std::time;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{self, Duration, Instant};
 use termion::color;
 use termion::event::Event::{Key as KeyEvent, Mouse};
 use termion::event::{Key, MouseButton, MouseEvent};
@@ -120,6 +117,16 @@ impl Editor {
             thread::sleep(time::Duration::from_millis(REFRESH_INTERVAL));
         }
         Ok(())
+    }
+
+    fn quit(&mut self, force: bool) {
+        if self.contains_changes() && !force {
+            self.status_message = StatusMessage::from(
+                "WARNING! File has unsaved changes: add ! to override.".to_string(),
+            );
+            return;
+        }
+        self.should_quit = true;
     }
 
     pub fn default() -> Self {
@@ -352,14 +359,17 @@ impl Editor {
         }
 
         let save_result = self.document.save();
-        if let Ok(bytes_written) = save_result {
-            self.status_message = StatusMessage::from(format!(
-                "File saved successfully: {} bytes written.",
-                bytes_written
-            ));
-            self.has_saved = true;
-        } else {
-            self.status_message = StatusMessage::from("Error writing file!".to_string());
+        match save_result {
+            Ok(bytes_written) => {
+                self.status_message = StatusMessage::from(format!(
+                    "File saved successfully: {} bytes written.",
+                    bytes_written
+                ));
+                self.has_saved = true;
+            }
+            Err(error) => {
+                self.status_message = StatusMessage::from(format!("Error writing file! {}", error));
+            }
         }
     }
 
@@ -512,105 +522,109 @@ impl Editor {
         });
     }
 
-    // TODO: Improve command parsing
-    // Split inputs by whitespace first and process entire words as commands
-    // if no match and only one word then split commands by characters
-    fn execute_command(&mut self) -> Result<()> {
-        let input = self
-            .prompt(":", |_, _, _| {})
-            .unwrap_or(None)
-            .unwrap_or("".to_string());
-        let mut commands = input.chars().peekable();
-        let first_char = *commands.peek().unwrap_or(&' ');
-        if first_char == '+' || first_char == '-' {
-            if let Ok(line_num) = input.parse::<i64>() {
-                let mut y = self.cursor_position.y as i64 + line_num;
-                if y < 0 {
-                    y = 0;
-                }
-                self.cursor_position = CursorPosition {
-                    x: 0,
-                    y: y as usize,
-                    max_x: 0,
-                };
-                self.readjust_cursor();
-            } else {
-                self.status_message = StatusMessage::from(format!("Invalid offset: {}", input));
+    fn jump_to_line(&mut self, line: usize) {
+        self.cursor_position = CursorPosition {
+            x: 0,
+            y: line.saturating_sub(1),
+            max_x: 0,
+        };
+        self.readjust_cursor();
+    }
+
+    fn jump_to_offset(&mut self, offset: &str) {
+        if let Ok(line_num) = offset.parse::<i64>() {
+            let mut y = self.cursor_position.y as i64 + line_num;
+            if y < 0 {
+                y = 0;
             }
-        } else if let Ok(line_num) = input.parse::<usize>() {
             self.cursor_position = CursorPosition {
                 x: 0,
-                y: line_num.saturating_sub(1),
+                y: y as usize,
                 max_x: 0,
             };
             self.readjust_cursor();
         } else {
-            while let Some(c) = commands.next() {
-                match c {
-                    'w' => self.save(),
-                    'p' => self.show_cwd(),
-                    'c' => {
-                        if let Some(path) = input.split_whitespace().collect::<Vec<&str>>().get(1) {
-                            let dir = Path::new(path);
-                            if let Ok(_) = env::set_current_dir(dir) {
-                                self.show_cwd();
-                            } else {
-                                self.status_message = StatusMessage::from(format!(
-                                    "ERR: Path does not exist: {}",
-                                    path
-                                ));
-                            };
-                            return Ok(());
-                        } else {
-                            self.status_message =
-                                StatusMessage::from(format!("ERR: No path entered"));
-                        }
-                    }
-                    'q' | 'e' | 'u' => {
-                        let force = input.contains("!");
-                        let dirty = self.contains_changes();
-                        if dirty && !force {
-                            self.status_message = StatusMessage::from(
-                                "WARNING! File has unsaved changes: add ! to override.".to_string(),
-                            );
-                            return Ok(());
-                        } else {
-                            match c {
-                                'q' => self.should_quit = true,
-                                'e' => {
-                                    if let Some(path) =
-                                        input.split_whitespace().collect::<Vec<&str>>().get(1)
-                                    {
-                                        if let Some((doc, versions)) = Self::open_document(&path) {
-                                            self.document = doc;
-                                            self.versions = versions;
-                                            self.version_index = 0;
-                                            self.cursor_position = CursorPosition::default();
-                                            self.readjust_cursor();
-                                        } else {
-                                            self.status_message = StatusMessage::from(format!(
-                                                "ERR: Could not open file: {}",
-                                                path
-                                            ));
-                                        };
-                                        return Ok(());
-                                    } else {
-                                        self.status_message =
-                                            StatusMessage::from(format!("ERR: No path entered"));
-                                    }
-                                }
-                                'u' => self.undo()?,
-                                _ => (),
-                            }
-                        }
-                    }
-                    '!' => (),
-                    _ => {
-                        self.status_message =
-                            StatusMessage::from(format!("Command not found: {}", c));
-                    }
-                }
+            self.status_message = StatusMessage::from(format!("Invalid offset: {}", offset));
+        }
+    }
+
+    fn cwd_command(&mut self, commands: Vec<&str>) {
+        let input_path = match commands.get(1) {
+            Some(path) => path,
+            None => {
+                self.status_message = StatusMessage::from(format!("ERR: No path entered"));
+                return;
             }
+        };
+        match env::set_current_dir(Path::new(input_path)) {
+            Ok(_) => self.show_cwd(),
+            Err(error) => {
+                self.status_message =
+                    StatusMessage::from(format!("ERR: Invalid path! {} | {}", input_path, error))
+            }
+        }
+    }
+
+    fn open_command(&mut self, commands: Vec<&str>, force: bool) {
+        if self.contains_changes() && !force {
+            self.status_message = StatusMessage::from(
+                "WARNING! File has unsaved changes: add ! to override.".to_string(),
+            );
+            return;
+        }
+        let input_path = match commands.get(1) {
+            Some(path) => path,
+            None => {
+                self.status_message = StatusMessage::from(format!("ERR: No path entered"));
+                return;
+            }
+        };
+        if let Some((doc, versions)) = Self::open_document(input_path) {
+            self.document = doc;
+            self.versions = versions;
+            self.version_index = 0;
+            self.cursor_position = CursorPosition::default();
+            self.readjust_cursor();
+        } else {
+            self.status_message =
+                StatusMessage::from(format!("ERR: Could not open file: {}", input_path));
+        };
+    }
+
+    fn parse_command(&mut self, input: &str) {
+        let commands: Vec<&str> = input.split_whitespace().collect();
+        match commands[0] {
+            "w" => self.save(),
+            "p" => self.show_cwd(),
+            "wq" | "x" => {
+                self.save();
+                self.quit(false);
+            }
+            "q" => self.quit(false),
+            "q!" => self.quit(true),
+            "e" => self.open_command(commands, false),
+            "e!" => self.open_command(commands, true),
+            "c" => self.cwd_command(commands),
+            c => {
+                self.status_message = StatusMessage::from(format!("Command not found: {}", c));
+            }
+        }
+    }
+
+    fn execute_command(&mut self) -> Result<()> {
+        let input = self.prompt(":", |_, _, _| {})?;
+        if input.is_none() {
+            return Ok(());
+        }
+        let input = input.unwrap();
+        let input = input.trim();
+        let first_char = input.chars().nth(0).unwrap_or(' ');
+        if first_char == '+' || first_char == '-' {
+            self.jump_to_offset(input);
+        } else if let Ok(line) = input.parse::<usize>() {
+            self.jump_to_line(line);
+        } else {
+            self.parse_command(input);
         }
         Ok(())
     }
@@ -875,8 +889,8 @@ impl Editor {
                 if self.document.row(y).is_some() {
                     x = x.saturating_sub(5);
                 }
-                x = x.saturating_sub(1) + self.offset.x;
-                y = y.saturating_sub(1) + self.offset.y;
+                x = x.saturating_sub(1).saturating_add(self.offset.x);
+                y = y.saturating_sub(1).saturating_add(self.offset.y);
                 self.cursor_position = CursorPosition {
                     x,
                     y,
@@ -884,22 +898,7 @@ impl Editor {
                 };
                 self.readjust_cursor();
             }
-            Press(Right, _, _) | Press(Middle, _, _) => {
-                use arboard::Error::*;
-                match Clipboard::new()?.get_text() {
-                    Ok(content) => {
-                        self.switch_mode(Mode::Insert);
-                        for c in content.chars().rev() {
-                            self.doc_insert(c);
-                        }
-                    }
-                    Err(ContentNotAvailable)
-                    | Err(ClipboardNotSupported)
-                    | Err(ClipboardOccupied)
-                    | Err(ConversionFailure) => (),
-                    Err(error) => return Err(error.into()),
-                }
-            }
+            Press(Right, _, _) | Press(Middle, _, _) => self.switch_mode(Mode::Insert),
             // TODO: Scroll view without having to move cursor
             // Everything is already offset based so start there
             // Need to change how scrolling works with offsets

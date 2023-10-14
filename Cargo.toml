@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.75"
-arboard = "3.2.1"
 chrono = "0"
 termion = "2"
 unicode-segmentation = "1"
