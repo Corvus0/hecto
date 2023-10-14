@@ -1128,22 +1128,22 @@ impl Editor {
         }
         .to_string();
         status = format!(
-            "{} | {} - {} lines{}",
+            " {} | {} - {} lines{}",
             mode,
             file_name,
             self.document.len(),
             modified_indicator
         );
         let progress = match self.offset.y {
-            n if n == 0 => "Top".to_string(),
+            n if n == 0 => "top".to_string(),
             n if n
-                == self
+                >= self
                     .document
                     .len()
-                    .saturating_sub(self.terminal.size().height.saturating_sub(1) as usize)
+                    .saturating_sub(self.terminal.size().height as usize)
                 && self.cursor_position.y >= n =>
             {
-                "Bottom".to_string()
+                "bot".to_string()
             }
             _ => format!(
                 "%{}",
@@ -1151,7 +1151,7 @@ impl Editor {
             ),
         };
         let line_indicator = format!(
-            "{} {} | {}:{} {}",
+            "{} {} | {:4}:{:<4} {:4}",
             chrono::offset::Local::now().format("%Y-%m-%d %H:%M:%S"),
             self.document.file_type(),
             self.cursor_position.y.saturating_add(1),
