@@ -203,58 +203,55 @@ impl Editor {
         self.terminal.flush()
     }
 
+    fn get_time_message(diff: chrono::Duration) -> String {
+        let (mut unit, magnitude) = if diff.num_seconds() < 60 {
+            ("second".to_owned(), diff.num_seconds())
+        } else {
+            ("minute".to_owned(), diff.num_minutes())
+        };
+        if magnitude != 1 {
+            unit.push_str("s");
+        }
+        format!("{} {} ago", magnitude, unit)
+    }
+
+    fn get_lines_message(lines_added: i64, lines_changed: i64) -> String {
+        if lines_added == 0 {
+            let mut change_type = "change".to_owned();
+            if lines_changed != 1 {
+                change_type.push_str("s")
+            }
+            return format!("{} {}", lines_changed.abs(), change_type);
+        }
+        let mut add_type = "line".to_owned();
+        if lines_added == -1 {
+            return format!("{} {} less", lines_added.abs(), add_type);
+        }
+        let magnitude = if lines_added >= 0 { "more" } else { "fewer" };
+        if lines_added != 1 {
+            add_type.push_str("s");
+        };
+        format!("{} {} {}", lines_added.abs(), magnitude, add_type)
+    }
+
     fn version_status_message(
         &self,
         old_len: usize,
         old_changes: usize,
         index: usize,
         timestamp: &DateTime<Local>,
-        redo: bool,
     ) -> String {
         let current_time = chrono::offset::Local::now();
         let diff = current_time - timestamp;
-        let time = if diff.num_seconds() < 60 {
-            let duration = if diff.num_seconds() == 1 {
-                "second"
-            } else {
-                "seconds"
-            };
-            format!("{} {} ago", diff.num_seconds(), duration)
-        } else if diff.num_minutes() < 10 {
-            let duration = if diff.num_minutes() == 1 {
-                "minute"
-            } else {
-                "minutes"
-            };
-            format!("{} {} ago", diff.num_minutes(), duration)
+        let time_msg = if diff.num_minutes() < 10 {
+            Self::get_time_message(diff)
         } else {
             timestamp.format("%H:%M:%S").to_string()
         };
         let lines_added = self.document.len() as i64 - old_len as i64;
-        let add_type = if lines_added.abs() == 1 {
-            "line"
-        } else {
-            "lines"
-        };
-        let change_msg = if lines_added == -1 {
-            format!("{} {} less", lines_added.abs(), add_type)
-        } else if lines_added != 0 {
-            let magnitude = if lines_added > 0 || redo {
-                "more"
-            } else {
-                "fewer"
-            };
-            format!("{} {} {}", lines_added.abs(), magnitude, add_type)
-        } else {
-            let lines_changed = (self.document.lines_changed() as i64 - old_changes as i64).abs();
-            let change_type = if lines_changed == 1 {
-                "change"
-            } else {
-                "changes"
-            };
-            format!("{} {}", lines_changed.abs(), change_type)
-        };
-        format!("{}; before #{}  {}", change_msg, index, time)
+        let lines_changed = (self.document.lines_changed() as i64 - old_changes as i64).abs();
+        let lines_msg = Self::get_lines_message(lines_added, lines_changed);
+        format!("{}; before #{}  {}", lines_msg, index, time_msg)
     }
 
     fn undo(&mut self) -> Result<()> {
@@ -274,7 +271,6 @@ impl Editor {
             prev_changes,
             self.version_index.saturating_add(1),
             &version.timestamp,
-            false,
         );
         self.status_message = StatusMessage::from(msg);
         self.readjust_cursor();
@@ -298,13 +294,8 @@ impl Editor {
         let version = &self.versions[self.version_index];
         self.document = version.document.clone();
         self.cursor_position = *position;
-        let msg = self.version_status_message(
-            prev_len,
-            prev_changes,
-            self.version_index,
-            &timestamp,
-            true,
-        );
+        let msg =
+            self.version_status_message(prev_len, prev_changes, self.version_index, &timestamp);
         self.status_message = StatusMessage::from(msg);
         self.readjust_cursor();
         self.refresh_screen()?;
