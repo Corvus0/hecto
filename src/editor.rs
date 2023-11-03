@@ -119,13 +119,7 @@ impl Editor {
         Ok(())
     }
 
-    fn quit(&mut self, force: bool) {
-        if self.contains_changes() && !force {
-            self.status_message = StatusMessage::from(
-                "WARNING! File has unsaved changes: add ! to override.".to_string(),
-            );
-            return;
-        }
+    fn quit(&mut self) {
         self.should_quit = true;
     }
 
@@ -549,7 +543,7 @@ impl Editor {
         }
     }
 
-    fn cwd_command(&mut self, commands: Vec<&str>) {
+    fn cwd_command(&mut self, commands: &Vec<&str>) {
         let input_path = match commands.get(1) {
             Some(path) => path,
             None => {
@@ -566,13 +560,7 @@ impl Editor {
         }
     }
 
-    fn open_command(&mut self, commands: Vec<&str>, force: bool) {
-        if self.contains_changes() && !force {
-            self.status_message = StatusMessage::from(
-                "WARNING! File has unsaved changes: add ! to override.".to_string(),
-            );
-            return;
-        }
+    fn open_file(&mut self, commands: &Vec<&str>) {
         let input_path = match commands.get(1) {
             Some(path) => path,
             None => {
@@ -592,6 +580,19 @@ impl Editor {
         };
     }
 
+    fn perform_command_safely<C>(&mut self, mut callback: C)
+    where
+        C: FnMut(&mut Self),
+    {
+        if self.contains_changes() {
+            self.status_message = StatusMessage::from(
+                "WARNING! File has unsaved changes: add ! to override.".to_string(),
+            );
+        } else {
+            callback(self);
+        }
+    }
+
     fn parse_command(&mut self, input: &str) {
         let commands: Vec<&str> = input.split_whitespace().collect();
         match commands.get(0) {
@@ -600,13 +601,13 @@ impl Editor {
                 "p" => self.show_cwd(),
                 "wq" | "x" => {
                     self.save();
-                    self.quit(false);
+                    self.quit();
                 }
-                "q" => self.quit(false),
-                "q!" => self.quit(true),
-                "e" => self.open_command(commands, false),
-                "e!" => self.open_command(commands, true),
-                "c" => self.cwd_command(commands),
+                "q" => self.perform_command_safely(|editor| editor.quit()),
+                "q!" => self.quit(),
+                "e" => self.perform_command_safely(|editor| editor.open_file(&commands)),
+                "e!" => self.open_file(&commands),
+                "c" => self.cwd_command(&commands),
                 _ => {
                     self.status_message =
                         StatusMessage::from(format!("Command not found: {}", command));
